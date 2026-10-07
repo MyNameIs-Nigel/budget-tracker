@@ -32,6 +32,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# Private source report and local artifacts
+/base.html
+/.local/
+/test-results/
+/playwright-report/
 
 # vercel
 .vercel

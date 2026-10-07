@@ -1,69 +1,126 @@
-import Image from "next/image";
-
-export default function Home() {
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import {
+  LockKeyhole,
+  ArrowDownRight,
+  ChartNoAxesCombined,
+  SlidersHorizontal,
+} from "lucide-react";
+import { getUser } from "@/lib/dal";
+import { googleEnabled } from "@/lib/auth";
+import { isLocalTestMode } from "@/lib/access";
+import { Brand } from "@/components/Icon";
+import SignIn from "@/components/SignIn";
+import Loading from "@/components/Loading";
+async function Landing() {
+  const u = await getUser();
+  if (u) redirect(u.disabled ? "/pending" : "/budget");
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <>
+      <header className="landing-nav">
+        <Brand />
+        <span className="small muted privacy">
+          <LockKeyhole size={14} />A private space for your money
+        </span>
+      </header>
+      <main id="main" className="landing">
+        <div className="landing-copy">
+          <p className="eyebrow">A little clarity goes a long way</p>
+          <h1>
+            Make room for
+            <br />
+            <span className="accent">what matters.</span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="landing-description">
+            Know where your money goes.
+            <br />
+            Give every dollar a purpose.
+            <br />
+            Find your way out of debt, one month at a time.
+          </p>
+          <SignIn google={googleEnabled} testMode={isLocalTestMode()} />
+          <p className="small muted access-note">
+            <LockKeyhole size={13} />
+            Private by default. New accounts need admin approval.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <div className="landing-art" aria-hidden="true">
+          <div className="art-glow" />
+          <div className="preview-card">
+            <div className="preview-top">
+              <span className="eyebrow">Your next chapter</span>
+              <span className="status-pill">Looking ahead</span>
+            </div>
+            <div className="preview-balance">
+              Less debt.
+              <br />
+              <span className="accent">More possibility.</span>
+            </div>
+            <svg viewBox="0 0 400 190" className="preview-chart">
+              <defs>
+                <linearGradient id="fade" x1="0" x2="0" y1="0" y2="1">
+                  <stop
+                    offset="0"
+                    stopColor="var(--accent)"
+                    stopOpacity=".12"
+                  />
+                  <stop offset="1" stopColor="var(--accent)" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              {[40, 90, 140].map((y) => (
+                <path
+                  key={y}
+                  d={`M0 ${y}H400`}
+                  stroke="var(--border)"
+                  strokeDasharray="3 5"
+                />
+              ))}
+              <path
+                d="M0 25C50 25 65 55 100 65S155 90 200 110S260 133 300 150S350 166 400 170V190H0Z"
+                fill="url(#fade)"
+              />
+              <path
+                d="M0 25C50 25 65 55 100 65S155 90 200 110S260 133 300 150S350 166 400 170"
+                stroke="var(--accent)"
+                strokeWidth="3"
+                fill="none"
+              />
+              <circle cx="399" cy="170" r="5" fill="var(--accent)" />
+            </svg>
+            <div className="preview-bottom">
+              <span>Today</span>
+              <span>
+                A brighter tomorrow
+                <ArrowDownRight size={15} />
+              </span>
+            </div>
+          </div>
+          <div className="art-caption">
+            <span className="tiny-dot" />
+            Small steps. A clear direction.
+          </div>
         </div>
       </main>
-    </div>
+      <footer className="landing-footer">
+        <span>
+          <SlidersHorizontal size={16} />A plan that adjusts with you
+        </span>
+        <span>
+          <ChartNoAxesCombined size={16} />
+          Progress you can see
+        </span>
+        <span>
+          <LockKeyhole size={16} />
+          Only your eyes, only your budget
+        </span>
+      </footer>
+    </>
+  );
+}
+export default function Page() {
+  return (
+    <Suspense fallback={<Loading label="Opening your space…" />}>
+      <Landing />
+    </Suspense>
   );
 }
