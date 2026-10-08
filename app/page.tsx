@@ -1,3 +1,9 @@
+import {
+  getSiteOrigin,
+  landingMetadata,
+  structuredData,
+  site,
+} from "@/lib/seo";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import {
@@ -12,6 +18,18 @@ import { isLocalTestMode } from "@/lib/access";
 import { Brand } from "@/components/Icon";
 import SignIn from "@/components/SignIn";
 import Loading from "@/components/Loading";
+export const metadata = {
+  ...landingMetadata(),
+  openGraph: {
+    type: "website" as const,
+    locale: "en_US",
+    siteName: site.name,
+    title: site.title,
+    description: site.description,
+    url: `${getSiteOrigin()}/`,
+  },
+};
+
 async function Landing() {
   const u = await getUser();
   if (u) redirect(u.disabled ? "/pending" : "/budget");
@@ -119,8 +137,16 @@ async function Landing() {
 }
 export default function Page() {
   return (
-    <Suspense fallback={<Loading label="Opening your space…" />}>
-      <Landing />
-    </Suspense>
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(structuredData()).replace(/</g, "\\u003c"),
+        }}
+      />
+      <Suspense fallback={<Loading label="Opening your space…" />}>
+        <Landing />
+      </Suspense>
+    </>
   );
 }
