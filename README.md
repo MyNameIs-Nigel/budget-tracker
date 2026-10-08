@@ -1,13 +1,13 @@
 # Budget Tracker
 
-A private budget planner and spending ledger built with Next.js 16, Better Auth,
+A private checking balance tracker, transaction ledger, and optional budget planner built with Next.js 16, Better Auth,
 Drizzle, and PostgreSQL. Designed for Vercel and Neon; this implementation does
 not create or deploy either service.
 
-Plan monthly income and essentials, allocate spending with capped sliders, and
-forecast debt payments, promotional APR changes, checking balances, and one-off
-cash changes. Track actual income/expenses separately, compare spending with the
-saved plan, and export a transaction CSV or portable plan JSON.
+Start in **Checking**: set a bank balance, record money in and out, and see the
+running balance after every transaction. Import CSV transactions with your own
+column mapping and duplicate review, or export the full ledger. Optional monthly
+planning and forecasts remain in **Your plan** and **Looking ahead**.
 
 ## Run locally
 
@@ -23,7 +23,8 @@ npm run dev
 
 Open [localhost:3000](http://localhost:3000). With the example configuration,
 choose **Sign in as local owner**. This creates a fictional local account, with
-an empty budget. In **Plan settings**, load a fictional example or import your
+an empty ledger and no assumed checking balance. Use **Set balance** and log or
+import transactions. For optional planning, in **Plan settings**, load a fictional example or import your
 private `base.html`, review the preview, choose **Use this plan**, and **Save plan**.
 The original HTML is read as data; its scripts are never executed. It remains
 ignored by Git. Personal financial values are not embedded in the app's defaults.
@@ -52,6 +53,61 @@ write, and export scopes data to the authenticated user. Mutations validate inpu
 and request origin. Cookies use an app-specific prefix so BUS321 and Budget can
 coexist locally.
 
+## Checking and transaction entry
+
+**Set balance** / **Update balance** accepts the bank balance at the end of a date
+(today or earlier). The server subtracts already logged activity on that date to
+store its opening balance. For example, a $975 bank balance after a logged $25
+expense stores a $1,000 opening balance; the expense is counted once. Adding a
+new $10 expense that day makes the tracked balance $965. Reconcile again whenever
+you want to match a bank statement or correct missing history.
+
+The current balance includes all entries from the starting date through today.
+Older entries reconstruct earlier running balances without changing that known
+starting point. Future entries show **Scheduled** and **Projected balance**, and
+are excluded from today's balance and money-in/out totals. Balances use the full
+ledger even when filtering by month. Same-day ordering uses creation time, then
+transaction ID as a stable tie breaker; it does not represent bank posting times.
+No balance is assumed until you set one. All ledger activity belongs to the one
+checking account tracked by each user; card balances remain forecast settings.
+
+Transactions save immediately. **Uncategorized** makes entry possible without
+setting up a budget first. You can categorize an entry later. The monthly plan
+comparison is available beneath the ledger when a month is selected. Checking
+and forecast snapshots are independent; no migration guesses a checking balance
+from a planning value.
+
+## Import transactions from CSV
+
+Choose **Checking → Import CSV**. The file stays in your browser while you select
+its delimiter and header row; introductory rows can be skipped. Map date,
+description, and either one amount column or separate credit/debit columns.
+Choose the date format and sign convention explicitly; an optional type column
+supports positive amounts paired with income/expense labels. An optional category
+column can be mapped to saved categories; unmatched expense categories remain
+Uncategorized. Unused columns are ignored.
+
+Review normalized rows before anything saves. Invalid rows show their CSV record
+numbers and errors; skipping them requires an explicit checkbox. Imports allow
+up to 500 data records per batch and a 1 MB file. The server also caps validated
+JSON at 200 KB; split large files into smaller batches if requested.
+
+Potential duplicates match the same user's date, amount, and direction (money in
+or out), including earlier rows in the same file. Review the existing and incoming
+entry, then **Skip duplicate** or **Update existing**. If several entries match,
+choose the specific entry to update. **Apply to this and all remaining duplicates**
+applies that choice only to unresolved matches; earlier choices remain intact.
+These are candidate matches, not a claim that two same-amount purchases are the
+same event. For distinct purchases with an identical date/amount/direction, log
+the additional entry manually after review.
+
+Confirm the final counts to import. The server rechecks the matching transactions
+inside the same transaction as the writes; changes since preview require another
+review. Imports are atomic and owner-scoped, and manual transaction edits use the
+same per-user database lock. Updates keep the existing transaction ID. Reimporting
+a file goes through duplicate review again. CSV export can be imported back by
+mapping its Date, Type, Description, Category, and Amount columns.
+
 Plans use explicit saves. Unsaved changes remain in memory; the save bar and
 navigation warning make that visible. A stale revision receives a conflict rather
 than overwriting another tab. Export your unsaved edits as JSON before reloading.
@@ -73,8 +129,8 @@ smallest balance. Optional surplus sweeping keeps checking at its bank floor
 unless planned bills or payments already put it below the floor. Loan inflows are
 reported as new borrowing: card payoff does not imply those loans are paid off.
 The model estimates monthly cash flow and does not guarantee daily bank balances,
-model new loan repayment, or connect to banks. Actual ledger entries do not mutate
-balance snapshots; update balances in settings when you check your accounts.
+model new loan repayment, or connect to banks. Actual ledger entries update checking running balances. Forecast balance snapshots
+remain separate; update those in Plan settings when refreshing a forecast.
 
 ## Verification
 
@@ -83,13 +139,19 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
-npm run test:e2e
+DATABASE_URL=postgresql://budget:budget@localhost:5433/budget_e2e_test npm run db:migrate
+DATABASE_URL=postgresql://budget:budget@localhost:5433/budget_e2e_test npm run test:e2e
 npm run format:check
 ```
 
-Playwright tests run the production build on desktop Chromium and Pixel 7 sizes
-against the local database. They verify access approval/disable, ownership,
-persistence, conflict handling, origin checks, transaction CRUD/CSV, import previews,
+Create the disposable browser-test database once with
+`docker compose exec db createdb -U budget budget_e2e_test`. Playwright tests run
+the production build on desktop Chromium and Pixel 7 sizes against that database.
+They start their own server on port 3100 and refuse to reuse an existing server or
+use the normal development database. Override `E2E_BASE_URL` with another loopback
+port if needed. They verify access approval/disable, ownership,
+persistence, conflict handling, origin checks, transaction CRUD/running balances, interactive CSV mapping and duplicate review,
+atomic import conflicts, import previews,
 dark mode, narrow-screen layout, and axe accessibility. Screenshots are written to
 ignored `.local/` files. `docs/SPEC.md` describes acceptance and architecture.
 

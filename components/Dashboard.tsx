@@ -17,6 +17,7 @@ import {
 import { allocationCap, money, totals, type Plan } from "@/lib/budget";
 import type { AppUser } from "@/lib/dal";
 import type { Transaction } from "@/lib/store";
+import type { CheckingBalance } from "@/lib/checking";
 import { request, download } from "@/lib/client";
 import { planSchema } from "@/lib/budget";
 import { Brand } from "./Icon";
@@ -28,8 +29,8 @@ import Ledger from "./Ledger";
 
 type View = "plan" | "spending" | "forecast" | "settings";
 const views = [
+  { id: "spending", label: "Checking", icon: ListOrdered },
   { id: "plan", label: "Your plan", icon: LayoutDashboard },
-  { id: "spending", label: "Spending", icon: ListOrdered },
   { id: "forecast", label: "Looking ahead", icon: TrendingDown },
   { id: "settings", label: "Plan settings", icon: Settings2 },
 ] as const;
@@ -39,19 +40,24 @@ export default function Dashboard({
   initialPlan,
   revision: initialRevision,
   initialTransactions,
+  initialCheckingBalance,
   testMode,
 }: {
   user: AppUser;
   initialPlan: Plan;
   revision: number;
   initialTransactions: Transaction[];
+  initialCheckingBalance: CheckingBalance | null;
   testMode: boolean;
 }) {
   const [plan, setPlan] = useState(initialPlan),
     [revision, setRevision] = useState(initialRevision);
   const [saved, setSaved] = useState(JSON.stringify(initialPlan));
   const [transactions, setTransactions] = useState(initialTransactions);
-  const [view, setView] = useState<View>("plan"),
+  const [checkingBalance, setCheckingBalance] = useState(
+    initialCheckingBalance,
+  );
+  const [view, setView] = useState<View>("spending"),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState(""),
     [error, setError] = useState("");
@@ -173,7 +179,7 @@ export default function Dashboard({
               {view === "plan"
                 ? "A purpose for every dollar"
                 : view === "spending"
-                  ? "Small choices add up"
+                  ? "Your day-to-day money"
                   : view === "forecast"
                     ? "A clear direction"
                     : "Make it yours"}
@@ -182,7 +188,7 @@ export default function Dashboard({
               {view === "plan"
                 ? "Your money, with a plan."
                 : view === "spending"
-                  ? "Stay close to your spending."
+                  ? "Know where your money stands."
                   : view === "forecast"
                     ? "A little more breathing room."
                     : "The details behind your plan."}
@@ -191,13 +197,15 @@ export default function Dashboard({
               {view === "plan"
                 ? "Cover the essentials. Make progress on debt. Leave room for life."
                 : view === "spending"
-                  ? "Log what comes in and goes out. See how the month is shaping up."
+                  ? "Set your bank balance. Add transactions. Keep the whole picture in view."
                   : view === "forecast"
                     ? "See where this plan could take you, one month at a time."
                     : "Keep your balances, rates, and upcoming cash changes up to date."}
             </p>
           </div>
-          <span className="plan-name">{plan.name}</span>
+          <span className="plan-name">
+            {view === "spending" ? "Checking account" : plan.name}
+          </span>
         </div>
         {view === "plan" && (
           <div className="view-content">
@@ -562,68 +570,76 @@ export default function Dashboard({
             transactions={transactions}
             onChange={setTransactions}
             dirty={dirty}
+            balance={checkingBalance}
+            onBalanceChange={setCheckingBalance}
           />
         )}
         <footer className="dashboard-footer">
           <ShieldCheck size={13} />
           Your budget stays yours.
-          <span>Amounts in USD · Estimates, not a bank feed.</span>
+          <span>
+            {view === "spending"
+              ? "Amounts in USD · Based on your entries"
+              : "Amounts in USD · Estimates, not a bank feed."}
+          </span>
         </footer>
       </main>
-      <div className="save-dock">
-        <div className="save-inner">
-          <div className="save-status" aria-live="polite">
-            {busy ? (
-              <LoaderCircle size={16} className="spin" />
-            ) : dirty ? (
-              <span className="unsaved-dot" />
-            ) : (
-              <Check size={16} />
-            )}
-            <span>
-              {busy
-                ? "Saving your plan…"
-                : dirty
-                  ? "You have unsaved changes"
-                  : "Your plan is saved"}
-              {message && <small>{message}</small>}
-            </span>
-          </div>
-          <div className="save-actions">
-            <button
-              className="icon-btn"
-              aria-label="Export current plan as JSON"
-              title="Export current plan as JSON"
-              onClick={() =>
-                download(
-                  "budget-plan.json",
-                  JSON.stringify(plan, null, 2),
-                  "application/json",
-                )
-              }
-            >
-              <Download size={18} />
-            </button>
-            <button
-              className="btn primary"
-              disabled={busy || !dirty}
-              onClick={save}
-            >
+      {(view === "plan" || view === "settings" || dirty) && (
+        <div className="save-dock">
+          <div className="save-inner">
+            <div className="save-status" aria-live="polite">
               {busy ? (
                 <LoaderCircle size={16} className="spin" />
+              ) : dirty ? (
+                <span className="unsaved-dot" />
               ) : (
-                <Save size={16} />
+                <Check size={16} />
               )}
-              Save plan
-            </button>
+              <span>
+                {busy
+                  ? "Saving your plan…"
+                  : dirty
+                    ? "You have unsaved changes"
+                    : "Your plan is saved"}
+                {message && <small>{message}</small>}
+              </span>
+            </div>
+            <div className="save-actions">
+              <button
+                className="icon-btn"
+                aria-label="Export current plan as JSON"
+                title="Export current plan as JSON"
+                onClick={() =>
+                  download(
+                    "budget-plan.json",
+                    JSON.stringify(plan, null, 2),
+                    "application/json",
+                  )
+                }
+              >
+                <Download size={18} />
+              </button>
+              <button
+                className="btn primary"
+                disabled={busy || !dirty}
+                onClick={save}
+              >
+                {busy ? (
+                  <LoaderCircle size={16} className="spin" />
+                ) : (
+                  <Save size={16} />
+                )}
+                Save plan
+              </button>
+            </div>
+            {error && (
+              <p role="alert" className="save-error">
+                {error}
+              </p>
+            )}
           </div>
-          {error && (
-            <p role="alert" className="save-error">
-              {error}
-            </p>
-          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

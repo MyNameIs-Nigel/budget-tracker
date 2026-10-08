@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { demoPlan, today } from "../lib/budget";
-const origin = "http://localhost:3000";
+const origin = process.env.E2E_BASE_URL ?? "http://localhost:3100";
 async function login(page: Page) {
   const r = await page.request.post("/api/e2e/sign-in", {
     data: { who: "owner" },
@@ -19,19 +19,33 @@ async function login(page: Page) {
     );
   await page.goto("/budget");
   await expect(
-    page.getByRole("heading", { name: "Your money, with a plan." }),
+    page.getByRole("heading", { name: "Know where your money stands." }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
 }
 test("AUTH-01 signed-out data and exports are blocked; landing is accessible", async ({
   page,
 }) => {
-  for (const route of ["/api/plan", "/api/transactions", "/api/export"])
+  for (const route of [
+    "/api/plan",
+    "/api/transactions",
+    "/api/checking",
+    "/api/export",
+  ])
     expect((await page.request.get(route)).status()).toBe(401);
   expect((await page.request.put("/api/plan", { data: {} })).status()).toBe(
     401,
   );
   expect(
     (await page.request.post("/api/transactions", { data: {} })).status(),
+  ).toBe(401);
+  expect((await page.request.put("/api/checking", { data: {} })).status()).toBe(
+    401,
+  );
+  expect(
+    (
+      await page.request.post("/api/transactions/import", { data: {} })
+    ).status(),
   ).toBe(401);
   await page.goto("/budget");
   await expect(page).toHaveURL(origin + "/");
@@ -51,6 +65,7 @@ test("PLAN-01 edits save and survive reload; stale writes are rejected", async (
     page.getByRole("button", { name: "Save plan", exact: true }),
   ).toBeDisabled();
   await page.reload();
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
   await expect(page.getByLabel("Take-home pay", { exact: true })).toHaveValue(
     "3100",
   );
@@ -87,7 +102,7 @@ test("LEDGER-01 income/expense CRUD persists, compares amounts and exports CSV",
   page,
 }) => {
   await login(page);
-  await page.getByRole("button", { name: "Spending", exact: true }).click();
+  await page.getByRole("button", { name: "Checking", exact: true }).click();
   await page
     .getByRole("button", { name: "Log transaction", exact: true })
     .click();
@@ -111,12 +126,12 @@ test("LEDGER-01 income/expense CRUD persists, compares amounts and exports CSV",
     page.getByText("Weekly groceries", { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Your plan", exact: true }).click();
-  await page.getByRole("button", { name: "Spending", exact: true }).click();
+  await page.getByRole("button", { name: "Checking", exact: true }).click();
   await expect(
     page.getByText("Weekly groceries", { exact: true }),
   ).toBeVisible();
   await page.reload();
-  await page.getByRole("button", { name: "Spending", exact: true }).click();
+  await page.getByRole("button", { name: "Checking", exact: true }).click();
   await page.getByRole("button", { name: "Edit Weekly groceries" }).click();
   await page.getByLabel("Amount (USD)").fill("55.25");
   await page
@@ -164,7 +179,12 @@ test("AUTH-02/03 admin activation, isolation and immediate disabling", async ({
   const guestPage = await guest.newPage();
   await guestPage.goto("/budget");
   await expect(guestPage).toHaveURL(/\/pending$/);
-  for (const path of ["/api/plan", "/api/transactions", "/api/export"])
+  for (const path of [
+    "/api/plan",
+    "/api/transactions",
+    "/api/checking",
+    "/api/export",
+  ])
     expect((await guest.request.get(path)).status()).toBe(403);
   await page.goto("/admin");
   const row = page
@@ -174,7 +194,7 @@ test("AUTH-02/03 admin activation, isolation and immediate disabling", async ({
   await expect(row.getByText("Active", { exact: true })).toBeVisible();
   await guestPage.getByRole("link", { name: "Check access again" }).click();
   await expect(
-    guestPage.getByRole("heading", { name: "Your money, with a plan." }),
+    guestPage.getByRole("heading", { name: "Know where your money stands." }),
   ).toBeVisible();
   const gp = await (await guest.request.get("/api/plan")).json();
   expect(gp.plan.income.pay).toBe(0);
@@ -232,6 +252,15 @@ test("AUTH-02/03 admin activation, isolation and immediate disabling", async ({
     403,
   );
   expect((await guest.request.get("/api/export")).status()).toBe(403);
+  expect((await guest.request.get("/api/checking")).status()).toBe(403);
+  expect(
+    (await guest.request.put("/api/checking", { data: {} })).status(),
+  ).toBe(403);
+  expect(
+    (
+      await guest.request.post("/api/transactions/import", { data: {} })
+    ).status(),
+  ).toBe(403);
   await guest.close();
 });
 test("FORECAST-01 and UI-01 all views, dark mode, reduced motion and mobile fit", async ({
@@ -241,7 +270,7 @@ test("FORECAST-01 and UI-01 all views, dark mode, reduced motion and mobile fit"
   await page.emulateMedia({ reducedMotion: "reduce" });
   for (const view of [
     "Your plan",
-    "Spending",
+    "Checking",
     "Looking ahead",
     "Plan settings",
   ]) {
@@ -260,14 +289,14 @@ test("FORECAST-01 and UI-01 all views, dark mode, reduced motion and mobile fit"
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await expect(
-    page.getByRole("heading", { name: "Your money, with a plan." }),
+    page.getByRole("heading", { name: "Know where your money stands." }),
   ).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole("button", { name: "Your account" }).click();
   await page.getByRole("radio", { name: "Light", exact: true }).check();
   await page.keyboard.press("Escape");
   await page.screenshot({
-    path: `.local/${testInfo.project.name}-plan.png`,
+    path: `.local/${testInfo.project.name}-checking.png`,
     fullPage: true,
   });
   await page
@@ -306,6 +335,7 @@ test("IMPORT-01 preview and save a JSON plan without overwriting automatically",
   await page.getByRole("button", { name: "Save plan", exact: true }).click();
   await expect(page.getByText("All changes saved")).toBeVisible();
   await page.reload();
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
   await expect(page.getByLabel("Take-home pay", { exact: true })).toHaveValue(
     "3500",
   );

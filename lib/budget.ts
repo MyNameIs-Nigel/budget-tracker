@@ -3,6 +3,7 @@ import { z } from "zod";
 export function validDate(value: string) {
   return (
     /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+    value >= "0001-01-01" &&
     Number.isFinite(Date.parse(value)) &&
     new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value
   );
@@ -116,7 +117,7 @@ export const planSchema = z
     }
     if (
       p.categories.some((c) =>
-        ["income", "bills", "giving", "debt"].includes(c.id),
+        ["income", "bills", "giving", "debt", "uncategorized"].includes(c.id),
       )
     )
       ctx.addIssue({

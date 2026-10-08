@@ -1113,6 +1113,62 @@ summary svg {
   gap: 18px;
   flex-wrap: wrap;
 }
+.checking-card {
+  padding: 28px 30px;
+  border: 1px solid var(--accent-pale);
+  background: linear-gradient(125deg, var(--accent-soft), var(--surface));
+  border-radius: 20px;
+}
+.checking-overview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.checking-overview h2 {
+  font-size: 15px;
+}
+.checking-overview .btn {
+  margin-left: auto;
+}
+.checking-icon {
+  color: var(--accent);
+  display: grid;
+  place-items: center;
+}
+.checking-amount {
+  display: block;
+  font-size: clamp(24px, 5vw, 40px);
+  letter-spacing: -1.2px;
+  margin: 20px 0 8px;
+  font-weight: 600;
+}
+.transaction-running {
+  text-align: right;
+  min-width: 105px;
+  font-variant-numeric: tabular-nums;
+}
+.transaction-running > span {
+  display: block;
+  font-size: 9px;
+}
+.transaction-running strong {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.transaction-note {
+  display: inline !important;
+  margin-left: 8px;
+  font-weight: 600;
+}
+.spending-comparison summary {
+  color: var(--muted);
+  cursor: pointer;
+  padding: 14px 4px;
+  min-height: 44px;
+}
+.spending-comparison .panel {
+  margin-top: 10px;
+}
 .month-picker {
   display: flex;
   align-items: center;
@@ -1802,6 +1858,39 @@ summary svg {
   }
   .transaction-dialog {
     padding: 22px 18px;
+  }
+  .checking-card {
+    padding: 22px 18px;
+  }
+  .checking-overview {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .checking-overview > div {
+    flex: 1;
+  }
+  .checking-overview .btn {
+    flex-basis: 100%;
+    margin-top: 8px;
+  }
+  .transaction-running {
+    margin-left: 36px;
+    text-align: left;
+    flex: 1;
+  }
+  .ledger-toolbar .button-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .ledger-toolbar .button-row .btn {
+    justify-content: center;
+  }
+  .ledger-toolbar .button-row .primary {
+    grid-column: 1 / -1;
+  }
+  .month-picker {
+    flex-wrap: wrap;
   }
   .transaction-dialog .two-columns {
     grid-template-columns: 1fr 1fr;

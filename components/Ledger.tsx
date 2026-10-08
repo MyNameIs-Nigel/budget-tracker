@@ -9,10 +9,18 @@ import {
   RefreshCw,
   ReceiptText,
   LoaderCircle,
+  Upload,
 } from "lucide-react";
 import { money, today, totals, type Plan } from "@/lib/budget";
 import { request } from "@/lib/client";
 import type { Transaction } from "@/lib/store";
+import {
+  runningBalances,
+  transactionOrder,
+  type CheckingBalance,
+} from "@/lib/checking";
+import CheckingBalanceCard from "./CheckingBalance";
+import CsvImport from "./CsvImport";
 
 function Editor({
   transaction,
@@ -30,14 +38,19 @@ function Editor({
     transaction?.kind ?? "expense",
   );
   const [category, setCategory] = useState(
-    transaction?.categoryId ?? plan.categories[0].id,
+    transaction?.categoryId ?? "uncategorized",
   );
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   useEffect(() => {
+    const previous = document.activeElement;
     dialog.current?.showModal();
+    return () => {
+      if (previous instanceof HTMLElement) previous.focus();
+    };
   }, []);
   const categories = [
+    { id: "uncategorized", name: "Uncategorized" },
     ...plan.categories,
     { id: "bills", name: "Insurance & bills" },
     { id: "giving", name: "Giving" },
@@ -52,8 +65,10 @@ function Editor({
       ref={dialog}
       className="transaction-dialog"
       aria-labelledby="transaction-title"
-      onCancel={onClose}
-      onClose={onClose}
+      onCancel={(e) => {
+        if (busy) e.preventDefault();
+        else onClose();
+      }}
     >
       <form
         onSubmit={async (e) => {
@@ -195,23 +210,33 @@ export default function Ledger({
   transactions,
   onChange,
   dirty,
+  balance,
+  onBalanceChange,
 }: {
   plan: Plan;
   transactions: Transaction[];
   onChange: (tx: Transaction[]) => void;
   dirty: boolean;
+  balance: CheckingBalance | null;
+  onBalanceChange: (balance: CheckingBalance | null) => void;
 }) {
-  const [month, setMonth] = useState(today().slice(0, 7)),
+  const [month, setMonth] = useState(""),
     [editing, setEditing] = useState<Transaction | null | undefined>();
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  const rows = transactions.filter((t) => t.date.startsWith(month));
+  const [importing, setImporting] = useState(false);
+  const [message, setMessage] = useState("");
+  const running = runningBalances(transactions, balance, today());
+  const rows = transactions
+    .filter((t) => !month || t.date.startsWith(month))
+    .sort((a, b) => -transactionOrder(a, b));
+  const recordedRows = rows.filter((row) => row.date <= today());
   const income =
-    rows
+    recordedRows
       .filter((t) => t.kind === "income")
       .reduce((n, t) => n + t.amountCents, 0) / 100;
   const spent =
-    rows
+    recordedRows
       .filter((t) => t.kind === "expense")
       .reduce((n, t) => n + t.amountCents, 0) / 100;
   const t = totals(plan);
@@ -227,12 +252,30 @@ export default function Ledger({
       known.add(row.categoryId);
       cats.push({
         id: row.categoryId,
-        name: `${row.categoryName} (previous category)`,
+        name:
+          row.categoryId === "uncategorized"
+            ? "Uncategorized"
+            : `${row.categoryName} (previous category)`,
         amount: 0,
       });
     }
   return (
     <div className="view-content">
+      <CheckingBalanceCard
+        balance={balance}
+        currentBalanceCents={running.currentBalanceCents}
+        disabled={busy}
+        onSaved={(saved, tx) => {
+          onBalanceChange(saved);
+          if (tx) onChange(tx);
+          setMessage("Checking balance saved.");
+        }}
+      />
+      {message && (
+        <p className="notice small" role="status">
+          {message}
+        </p>
+      )}
       {dirty && (
         <div className="notice">
           Comparisons use your saved plan. Save your plan changes to update
@@ -240,23 +283,41 @@ export default function Ledger({
         </div>
       )}
       <div className="ledger-toolbar">
-        <label className="month-picker">
-          <span className="small muted">Viewing month</span>
-          <input
-            type="month"
-            value={month}
-            required
-            onChange={(e) => {
-              if (e.target.value) setMonth(e.target.value);
-            }}
-          />
-        </label>
+        <div className="month-picker">
+          <label className="month-picker">
+            <span className="small muted">Viewing month</span>
+            <input
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+            />
+          </label>
+          <button
+            className="text-btn"
+            onClick={() => setMonth("")}
+            aria-pressed={!month}
+          >
+            All transactions
+          </button>
+        </div>
         <div className="button-row">
+          <button
+            className="btn"
+            disabled={busy}
+            onClick={() => setImporting(true)}
+          >
+            <Upload size={16} />
+            Import CSV
+          </button>
           <a className="btn" href="/api/export" download>
             <Download size={16} />
             Export CSV
           </a>
-          <button className="btn primary" onClick={() => setEditing(null)}>
+          <button
+            className="btn primary"
+            disabled={busy}
+            onClick={() => setEditing(null)}
+          >
             <Plus size={17} />
             Log transaction
           </button>
@@ -264,73 +325,38 @@ export default function Ledger({
       </div>
       <div className="forecast-stats ledger-stats">
         <div>
-          <span className="small muted">Income logged</span>
-          <strong>{money(income)}</strong>
-          <small className="muted">{money(t.income)} planned monthly</small>
+          <span className="small muted">Money in</span>
+          <strong>{money(income, true)}</strong>
+          <small className="muted">
+            {month
+              ? "For the selected month"
+              : "Across recorded dates through today"}
+          </small>
         </div>
         <div>
-          <span className="small muted">Spent this month</span>
-          <strong>{money(spent)}</strong>
+          <span className="small muted">Money out</span>
+          <strong>{money(spent, true)}</strong>
           <small className="muted">Including bills and debt payments</small>
         </div>
         <div>
           <span className="small muted">Net cash flow</span>
           <strong className={income - spent < 0 ? "error-text" : "accent"}>
-            {money(income - spent)}
+            {money(income - spent, true)}
           </strong>
-          <small className="muted">Logged income minus expenses</small>
+          <small className="muted">
+            {month
+              ? "For the selected month"
+              : "Across recorded dates through today"}
+          </small>
         </div>
       </div>
       <section className="panel">
         <div className="section-title">
           <div>
-            <h2>How your spending compares</h2>
-            <p className="small muted">
-              Actual spending alongside your current monthly plan.
-            </p>
-          </div>
-        </div>
-        <div className="actual-grid">
-          {cats.map((c) => {
-            const actual =
-                rows
-                  .filter((t) => t.kind === "expense" && t.categoryId === c.id)
-                  .reduce((n, t) => n + t.amountCents, 0) / 100,
-              over = actual > c.amount;
-            return (
-              <div className="actual-category" key={c.id}>
-                <div>
-                  <span>{c.name}</span>
-                  <span className={over ? "error-text" : ""}>
-                    <strong>{money(actual)}</strong>
-                    <span className="muted"> / {money(c.amount)}</span>
-                  </span>
-                </div>
-                <div className="actual-track">
-                  <span
-                    style={{
-                      width: `${Math.min(100, c.amount ? (actual / c.amount) * 100 : actual ? 100 : 0)}%`,
-                      background: over ? "var(--danger)" : "var(--accent)",
-                    }}
-                  />
-                </div>
-                {over && (
-                  <small className="error-text">
-                    {money(actual - c.amount)} over plan
-                  </small>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-      <section className="panel">
-        <div className="section-title">
-          <div>
             <h2>Your transactions</h2>
             <p className="small muted">
-              {rows.length} {rows.length === 1 ? "entry" : "entries"} this
-              month.
+              {rows.length} {rows.length === 1 ? "entry" : "entries"}
+              {month ? "in this month" : "in your ledger"}.
             </p>
           </div>
           <button
@@ -341,7 +367,13 @@ export default function Ledger({
               setBusy(true);
               setError("");
               try {
-                onChange(await request<Transaction[]>("/api/transactions"));
+                const [tx, latestBalance] = await Promise.all([
+                  request<Transaction[]>("/api/transactions"),
+                  request<CheckingBalance | null>("/api/checking"),
+                ]);
+                onChange(tx);
+                onBalanceChange(latestBalance);
+                setMessage("");
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Could not refresh.");
               } finally {
@@ -360,11 +392,16 @@ export default function Ledger({
         {!rows.length ? (
           <div className="empty-ledger">
             <ReceiptText size={27} />
-            <h3>A fresh page for the month.</h3>
+            <h3>Your checking history starts here.</h3>
             <p className="muted small">
-              Log your first transaction to see your progress here.
+              Add an entry or import a CSV to start tracking your checking
+              balance.
             </p>
-            <button className="text-btn" onClick={() => setEditing(null)}>
+            <button
+              className="text-btn"
+              disabled={busy}
+              onClick={() => setEditing(null)}
+            >
               Add your first entry
             </button>
           </div>
@@ -380,19 +417,48 @@ export default function Ledger({
                   <span className="muted small">
                     {new Date(`${row.date}T12:00:00Z`).toLocaleDateString(
                       "en-US",
-                      { month: "short", day: "numeric", timeZone: "UTC" },
+                      {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                        timeZone: "UTC",
+                      },
                     )}{" "}
                     · {row.categoryName}
+                    {row.date > today() && (
+                      <span className="transaction-note">Scheduled</span>
+                    )}
+                    {balance && row.date < balance.asOf && (
+                      <span className="transaction-note">
+                        Before starting balance
+                      </span>
+                    )}
                   </span>
                 </div>
                 <strong className={row.kind === "income" ? "accent" : ""}>
                   {row.kind === "income" ? "+" : "−"}
                   {money(row.amountCents / 100, true)}
                 </strong>
+                <div
+                  className="transaction-running"
+                  aria-label={`Balance after ${row.description}`}
+                >
+                  <span className="muted small">
+                    {row.date > today() ? "Projected balance" : "Balance after"}
+                  </span>
+                  <strong
+                    className={running.balances[row.id] < 0 ? "error-text" : ""}
+                  >
+                    {balance
+                      ? money(running.balances[row.id] / 100, true)
+                      : "—"}
+                  </strong>
+                </div>
                 <div className="transaction-actions">
                   <button
                     className="icon-btn"
                     aria-label={`Edit ${row.description}`}
+                    disabled={busy}
                     onClick={() => setEditing(row)}
                   >
                     <Pencil size={15} />
@@ -429,9 +495,76 @@ export default function Ledger({
         )}
       </section>
       <p className="small muted">
-        These entries track actual cash flow. Update checking and card balances
-        in Plan settings to refresh your forecast.
+        Running balances use the entire ledger, even when a month is selected.
+        Entries on the same date use a consistent order. Future entries are
+        projected and do not change today’s balance.
       </p>
+      <details className="spending-comparison">
+        <summary>Compare spending with your plan</summary>{" "}
+        <section className="panel">
+          <div className="section-title">
+            <div>
+              <h2>How your spending compares</h2>
+              <p className="small muted">
+                {month
+                  ? "Actual spending alongside your current monthly plan."
+                  : "Select a month above to compare spending with your monthly plan."}
+              </p>
+            </div>
+          </div>
+          {month && (
+            <div className="actual-grid">
+              {cats.map((c) => {
+                const actual =
+                    recordedRows
+                      .filter(
+                        (t) => t.kind === "expense" && t.categoryId === c.id,
+                      )
+                      .reduce((n, t) => n + t.amountCents, 0) / 100,
+                  over = actual > c.amount;
+                return (
+                  <div className="actual-category" key={c.id}>
+                    <div>
+                      <span>{c.name}</span>
+                      <span className={over ? "error-text" : ""}>
+                        <strong>{money(actual, true)}</strong>
+                        <span className="muted"> / {money(c.amount)}</span>
+                      </span>
+                    </div>
+                    <div className="actual-track">
+                      <span
+                        style={{
+                          width: `${Math.min(100, c.amount ? (actual / c.amount) * 100 : actual ? 100 : 0)}%`,
+                          background: over ? "var(--danger)" : "var(--accent)",
+                        }}
+                      />
+                    </div>
+                    {over && (
+                      <small className="error-text">
+                        {money(actual - c.amount, true)} over plan
+                      </small>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </details>
+      {importing && (
+        <CsvImport
+          plan={plan}
+          onClose={() => setImporting(false)}
+          onImported={(result) => {
+            onChange(result.transactions);
+            setMonth("");
+            setMessage(
+              `Import complete: ${result.added} added, ${result.updated} updated, ${result.skipped} skipped.`,
+            );
+            setImporting(false);
+          }}
+        />
+      )}
       {editing !== undefined && (
         <Editor
           key={editing?.id ?? "new"}
@@ -440,8 +573,8 @@ export default function Ledger({
           onClose={() => setEditing(undefined)}
           onSaved={(t) =>
             onChange(
-              [t, ...transactions.filter((r) => r.id !== t.id)].sort((a, b) =>
-                b.date.localeCompare(a.date),
+              [t, ...transactions.filter((r) => r.id !== t.id)].sort(
+                (a, b) => -transactionOrder(a, b),
               ),
             )
           }

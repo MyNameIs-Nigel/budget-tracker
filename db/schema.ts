@@ -77,6 +77,19 @@ export const plans = pgTable("plans", {
   revision: integer("revision").notNull().default(0),
   updatedAt: time("updated_at").notNull().defaultNow(),
 });
+export const checkingBalances = pgTable(
+  "checking_balances",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    asOf: date("as_of").notNull(),
+    balanceCents: integer("balance_cents").notNull(),
+    revision: integer("revision").notNull().default(0),
+    updatedAt: time("updated_at").notNull().defaultNow(),
+  },
+  (t) => [check("checking_revision_nonnegative", sql`${t.revision} >= 0`)],
+);
 export const transactions = pgTable(
   "transactions",
   {
@@ -94,6 +107,12 @@ export const transactions = pgTable(
   },
   (t) => [
     index("transactions_user_date_idx").on(t.userId, t.date),
+    index("transactions_duplicate_idx").on(
+      t.userId,
+      t.date,
+      t.amountCents,
+      t.kind,
+    ),
     check("positive_amount", sql`${t.amountCents} > 0`),
     check("transaction_kind", sql`${t.kind} in ('income', 'expense')`),
   ],
