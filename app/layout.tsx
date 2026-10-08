@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { getSiteOrigin, privateRobots, site } from "@/lib/seo";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,13 +14,37 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: {
-    default: "Budget — a little more breathing room",
-    template: "%s · Budget",
+  metadataBase: new URL(getSiteOrigin()),
+  applicationName: site.name,
+  title: { default: site.title, template: "%s · Budget" },
+  description: site.description,
+  robots: privateRobots,
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    siteName: site.name,
+    title: site.title,
+    description: site.description,
   },
-  description:
-    "Your private space to plan spending, track progress, and pay down debt.",
-  robots: { index: false, follow: false },
+  twitter: {
+    card: "summary_large_image",
+    title: site.title,
+    description: site.description,
+  },
+  icons: {
+    icon: { url: "/icon/32", sizes: "32x32", type: "image/png" },
+    shortcut: "/favicon.ico",
+    apple: { url: "/apple-icon", sizes: "180x180", type: "image/png" },
+  },
+  appleWebApp: { capable: true, title: site.name, statusBarStyle: "default" },
+  formatDetection: { telephone: false },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: site.background },
+    { media: "(prefers-color-scheme: dark)", color: "#141410" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

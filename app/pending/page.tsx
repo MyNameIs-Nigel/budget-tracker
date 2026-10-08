@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privateRobots } from "@/lib/seo";
 import { Suspense } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -6,6 +8,11 @@ import { getUser } from "@/lib/dal";
 import { Brand } from "@/components/Icon";
 import UserMenu from "@/components/UserMenu";
 import Loading from "@/components/Loading";
+export const metadata: Metadata = {
+  title: "Account approval",
+  robots: privateRobots,
+};
+
 async function Pending() {
   const u = await getUser();
   if (!u) redirect("/");

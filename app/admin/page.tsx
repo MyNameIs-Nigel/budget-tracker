@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privateRobots } from "@/lib/seo";
 import { Suspense } from "react";
 import Link from "next/link";
 import { desc } from "drizzle-orm";
@@ -10,6 +12,11 @@ import { Brand } from "@/components/Icon";
 import UserMenu from "@/components/UserMenu";
 import Loading from "@/components/Loading";
 import AdminUsers from "@/components/AdminUsers";
+export const metadata: Metadata = {
+  title: "Manage access",
+  robots: privateRobots,
+};
+
 async function Admin() {
   const u = await requireAdmin();
   const users = await db

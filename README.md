@@ -114,6 +114,39 @@ ignored `.local/` files. `docs/SPEC.md` describes acceptance and architecture.
 5. Deploy through Vercel, then sign in as
    the configured owner and import the private reference report through settings.
 
+## Generated SEO and share assets
+
+Set `SITE_URL` to the canonical public origin (defaults to
+`https://budget.nigel-smith.dev`). Set it in the production build environment;
+metadata and discovery files are generated from this configuration. Previews
+must retain `VERCEL_ENV=preview` so they remain excluded from search.
+
+The landing page has canonical, Open Graph, and X large-card metadata plus
+WebSite and WebApplication JSON-LD. Only the public landing page is indexable;
+account pages retain `noindex, nofollow, noarchive` and are omitted from the
+sitemap. Authentication remains the protection for private data; robots rules
+are crawler guidance. Development, previews, and loopback origins disallow
+crawling and generate an empty sitemap.
+
+All assets are code-generated, with no static social images or favicon files:
+
+- `/opengraph-image` and `/twitter-image`: request-time 1200×630 PNG cards.
+- `/icon/32`, `/icon/192`, `/icon/512`: request-time branded PNG icons.
+- `/apple-icon`: request-time 180×180 home-screen icon.
+- `/favicon.ico`: a generated ICO containing the same 32×32 brand icon.
+- `/sitemap.xml`, `/robots.txt`, `/manifest.webmanifest`: generated Next.js metadata routes.
+
+Social cards and icons use `next/og`, inline SVG, and its bundled font without
+remote asset requests. Change shared branding and origin configuration in
+`lib/seo.ts`. The manifest supplies home-screen identity; there is no offline
+service worker. The sitemap deliberately omits `lastmod` rather than inventing a
+content modification date on every request.
+
+Run `npm run check` and, after building, `npx playwright test e2e/seo.spec.ts`
+to check discovery metadata and the generated binary assets. After deployment,
+submit `/sitemap.xml` in your search console and refresh the social platform's
+cached preview if it still shows the old card.
+
 ## Updating the database schema
 
 Edit `db/schema.ts`, run `npm run db:generate`, review the generated SQL, and commit
