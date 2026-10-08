@@ -53,6 +53,11 @@ transaction ledger with user foreign keys. All mutations authenticate, authorize
 check same-origin requests and validate inputs. Auth cookies have an app-specific
 prefix to avoid collisions with BUS321 on localhost.
 
-Production uses Vercel and Neon. Migrations are an explicit operator command;
-builds do not mutate databases. Local development and tests use isolated Postgres.
-No deployment is part of this implementation.
+Production uses Vercel and Neon. Vercel's configured build command runs committed
+migrations before building only when `VERCEL_ENV=production`, failing deployment
+on migration errors. Plain local and preview builds skip automatic migrations.
+The migration runner serializes runs with a transaction advisory lock, validates
+applied history hashes/timestamps, and commits pending SQL and history atomically.
+Applied migrations are immutable and future changes must remain compatible with
+the app serving traffic during deployment. Local development and tests use
+isolated Postgres. No deployment is part of this implementation.

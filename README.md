@@ -104,11 +104,53 @@ ignored `.local/` files. `docs/SPEC.md` describes acceptance and architecture.
    URI on the Google OAuth client, and the canonical app origin as an authorized
    JavaScript origin. Use separate Google clients and databases for previews if
    you choose to enable real sign-in there.
-4. Apply migrations explicitly with `npm run db:migrate` using the intended
-   database URL. Builds do **not** run migrations or seed data. Review the
-   generated SQL in `db/migrations` before applying it to a remote database.
-5. Deploy with the usual Next.js build command, `npm run build`, then sign in as
+4. Commit `vercel.json`, which sets Vercel's Build Command to
+   `npm run build:vercel`. Ensure Vercel exposes its system environment variables
+   (`VERCEL_ENV`) and set `DATABASE_URL` in the **Production** environment.
+   Production builds run `npm run db:migrate` before `npm run build`; migration
+   errors fail the build and prevent deployment. Preview, development, and plain
+   local builds skip automatic migrations. Use a separate database for previews
+   and apply its migrations explicitly if needed.
+5. Deploy through Vercel, then sign in as
    the configured owner and import the private reference report through settings.
+
+## Updating the database schema
+
+Edit `db/schema.ts`, run `npm run db:generate`, review the generated SQL, and commit
+the SQL, snapshots, and `db/migrations/meta/_journal.json` together with the app
+change. The next production Vercel build applies pending migrations automatically;
+you do not need to connect to Neon manually. No GitHub Actions migration job is
+required. Vercel's [build configuration](https://vercel.com/docs/project-configuration)
+and [system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables)
+control the build command and production gate.
+
+`db:migrate` applies committed migrations only; it does not generate SQL, push the
+schema, seed data, or reset the database. Applied migrations are skipped on reruns.
+A PostgreSQL transaction advisory lock serializes simultaneous migration runs,
+including on Neon's pooled connections. Pending SQL and migration history commit
+together or roll back together on error. Connection, lock, and statement timeouts
+bound waiting. The runner also checks the hashes and timestamps of all applied
+migrations, rejecting edited/deleted history or an older checkout. Keep applied
+SQL and journal entries unchanged; create a new migration for every schema update.
+
+Review SQL for destructive changes and keep migrations compatible with the running
+app. The current deployment stays live while the new build runs, and a later build
+or deployment failure does not undo a successful migration. Prefer adding a column,
+deploying code that uses it, then removing old columns in a later release. Vercel
+rollback/promotion without a rebuild does not run this hook or roll back the schema;
+deploy a new production build for schema updates. Transaction-incompatible SQL
+(such as `CREATE INDEX CONCURRENTLY`) needs a separate planned operation.
+
+To verify concurrency, reruns, history protection, and rollback with PostgreSQL,
+create a **disposable local** database named `budget_migration_test`, then run:
+
+```sh
+MIGRATION_TEST_DATABASE_URL=postgresql://budget:budget@localhost:5433/budget_migration_test npm run test:scripts
+```
+
+The integration test resets that database's `public` and `drizzle` schemas and
+refuses non-loopback hosts or other database names. Without the test URL, script
+tests run the deployment guards and skip database integration tests.
 
 No real Google callback was exercised during local automated tests; the provider
 uses Better Auth's [documented Google integration](https://better-auth.com/docs/authentication/google)

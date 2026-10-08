@@ -5,10 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:vercel": "node scripts/vercel-build.mjs",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:scripts",
+    "test:scripts": "node --test tests/*.test.mjs",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
     "db:generate": "drizzle-kit generate",
