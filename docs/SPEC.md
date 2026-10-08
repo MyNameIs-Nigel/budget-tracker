@@ -34,8 +34,29 @@ disabled, can sign in, and see an access-pending page.
 - FORECAST-04: show floor breaches, monthly cash flow, interest, and payoff dates.
   Warn that this is a monthly estimate, not a bank feed or daily payment guarantee.
   Actual transactions do not automatically change balance snapshots or forecasts.
-- LEDGER-01: add, edit, and delete dated income/expense records; filter by month;
-  compare actual category spending to the current plan; export the full ledger CSV.
+- LEDGER-01: Checking is the default view. Add, edit, and delete dated income/expense
+  records without requiring a plan; filter by month or show all; optionally compare
+  monthly actual category spending to the current plan; export the full ledger CSV.
+- CHECKING-01: save an owner-scoped signed-cents opening checkpoint with optimistic
+  revision checks. The UI accepts an end-of-day bank balance and atomically subtracts
+  already logged same-day activity to avoid double counting. Existing data is preserved;
+  no initial actual balance is guessed from forecast settings.
+- CHECKING-02: derive running balances over the whole ledger with stable date/creation/ID
+  ordering, including history before the checkpoint. Same-day and subsequent CRUD/import
+  activity updates checking; future entries are labelled projected and excluded from
+  today's balance. Filtering never resets a balance. Forecast snapshots remain separate.
+- CSV-01: explicit delimiter, header-row, column, date-format, amount-sign/type, and
+  category mapping. Support quoted delimiters/newlines/escaped quotes and separate
+  credit/debit columns. Show normalized preview and row errors; invalid row skipping
+  requires acknowledgement. Bound imports to 500 records, 1 MB files, 200 KB JSON.
+- CSV-02: candidates match owner/date/cents/direction, including in-file duplicates.
+  Compare incoming and existing values, choose skip/update, select targets for multiple
+  matches, and optionally apply a choice to this and all unresolved matches. Preserve
+  earlier choices. Final confirmation precedes all writes.
+- CSV-03: an import review token fingerprints input and matching records; recheck under
+  the same per-owner PostgreSQL transaction advisory lock used by CRUD/reconciliation.
+  Changed matches reject the entire commit with 409. Atomic import updates retain IDs;
+  all authenticated reads/writes/exports preserve owner boundaries and origin checks.
 - IMPORT-01: read the private reference HTML as data, never execute its scripts.
   Import the original categories, suggestions, debt assumptions, balances, and events.
   Preview and explicitly save. No private report values are shipped as app defaults.
@@ -49,7 +70,7 @@ Next.js 16 App Router and Cache Components, React 19, Tailwind 4. Request-time
 authenticated components stream inside Suspense; financial reads never use a
 shared cache. Better Auth Google OAuth/OIDC, Drizzle with node-postgres, and
 Neon-compatible PostgreSQL. Auth tables, one versioned JSONB plan per user, and a
-transaction ledger with user foreign keys. All mutations authenticate, authorize,
+transaction ledger and separate versioned checking checkpoint with user foreign keys. All mutations authenticate, authorize,
 check same-origin requests and validate inputs. Auth cookies have an app-specific
 prefix to avoid collisions with BUS321 on localhost.
 
