@@ -113,7 +113,7 @@ test("LEDGER-01 income/expense CRUD persists, compares amounts and exports CSV",
   await page
     .getByLabel("Description", { exact: true })
     .fill("Weekly groceries");
-  await page.getByLabel("Amount (USD)").fill("48.25");
+  await page.getByLabel("Amount (USD)", { exact: true }).fill("48.25");
   await page.evaluate(async () => {
     await Promise.all(
       document
@@ -137,7 +137,7 @@ test("LEDGER-01 income/expense CRUD persists, compares amounts and exports CSV",
   await page.reload();
   await page.getByRole("button", { name: "Checking", exact: true }).click();
   await page.getByRole("button", { name: "Edit Weekly groceries" }).click();
-  await page.getByLabel("Amount (USD)").fill("55.25");
+  await page.getByLabel("Amount (USD)", { exact: true }).fill("55.25");
   await page
     .getByRole("button", { name: "Save transaction", exact: true })
     .click();
@@ -148,7 +148,7 @@ test("LEDGER-01 income/expense CRUD persists, compares amounts and exports CSV",
   await page
     .getByLabel("Description", { exact: true })
     .fill("Paycheck example");
-  await page.getByLabel("Amount (USD)").fill("1200");
+  await page.getByLabel("Amount (USD)", { exact: true }).fill("1200");
   await page.getByLabel("Type", { exact: true }).selectOption("income");
   await page
     .getByRole("button", { name: "Add transaction", exact: true })
