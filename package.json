@@ -12,7 +12,7 @@
     "test": "vitest run && npm run test:scripts",
     "test:scripts": "node --test tests/*.test.mjs",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && playwright test",
+    "test:e2e": "node scripts/test-e2e.mjs",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node scripts/db-migrate.mjs",
     "format": "prettier --write .",

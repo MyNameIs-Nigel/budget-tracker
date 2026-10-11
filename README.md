@@ -16,7 +16,7 @@ Use Node.js 24 or newer and npm.
 ```sh
 npm ci
 cp .env.example .env.local
-docker compose up -d
+docker compose up -d --wait
 npm run db:migrate
 npm run dev
 ```
@@ -72,7 +72,9 @@ No balance is assumed until you set one. All ledger activity belongs to the one
 checking account tracked by each user; card balances remain forecast settings.
 
 Transactions save immediately. **Uncategorized** makes entry possible without
-setting up a budget first. You can categorize an entry later. The monthly plan
+setting up a budget first. You can categorize an entry later. If another tab edits a transaction, an older
+edit or delete receives a conflict; refresh the ledger and review the newer
+entry before retrying. The monthly plan
 comparison is available beneath the ledger when a month is selected. Checking
 and forecast snapshots are independent; no migration guesses a checking balance
 from a planning value.
@@ -112,7 +114,9 @@ Plans use explicit saves. Unsaved changes remain in memory; the save bar and
 navigation warning make that visible. A stale revision receives a conflict rather
 than overwriting another tab. Export your unsaved edits as JSON before reloading.
 Transactions save immediately and retain their original category label even if the
-plan's category is later renamed or removed. CSV export includes the full ledger;
+plan's category is later renamed or removed. Editing an amount, date, or
+description preserves that historical category; choosing a different category
+explicitly uses its current saved-plan label. CSV export includes the full ledger;
 plan JSON contains the current plan only, not transactions.
 
 ## Forecast assumptions
@@ -137,15 +141,19 @@ remain separate; update those in Plan settings when refreshing a forecast.
 ```sh
 npm run lint
 npm run typecheck
-npm test
-npm run build
-DATABASE_URL=postgresql://budget:budget@localhost:5433/budget_e2e_test npm run db:migrate
+MIGRATION_TEST_DATABASE_URL=postgresql://budget:budget@localhost:5433/budget_migration_test npm test
 DATABASE_URL=postgresql://budget:budget@localhost:5433/budget_e2e_test npm run test:e2e
 npm run format:check
 ```
 
-Create the disposable browser-test database once with
-`docker compose exec db createdb -U budget budget_e2e_test`. Playwright tests run
+Create disposable test databases once with
+`docker compose exec db createdb -U budget budget_e2e_test` and
+`docker compose exec db createdb -U budget budget_migration_test`, and install
+Chromium with `npx playwright install chromium`. `test:e2e` validates the target
+before migrating the disposable database, building, and running Playwright. It
+supplies fictional authentication settings without needing `.env.local` or Google
+credentials; database URL query parameters and hosted Vercel environments are
+rejected. Playwright tests run
 the production build on desktop Chromium and Pixel 7 sizes against that database.
 They start their own server on port 3100 and refuse to reuse an existing server or
 use the normal development database. Override `E2E_BASE_URL` with another loopback
@@ -153,7 +161,10 @@ port if needed. They verify access approval/disable, ownership,
 persistence, conflict handling, origin checks, transaction CRUD/running balances, interactive CSV mapping and duplicate review,
 atomic import conflicts, import previews,
 dark mode, narrow-screen layout, and axe accessibility. Screenshots are written to
-ignored `.local/` files. `docs/SPEC.md` describes acceptance and architecture.
+ignored `.local/` files. `AGENTS.md` has the editing/testing protocol, and
+`docs/SPEC.md` describes acceptance and architecture. GitHub Actions runs lint,
+type checking, formatting, unit/script tests, migration integration, and both
+browser projects against ephemeral PostgreSQL on every PR.
 
 ## Vercel / Neon setup for the owner
 

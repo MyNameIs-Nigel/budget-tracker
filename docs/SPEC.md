@@ -57,6 +57,14 @@ disabled, can sign in, and see an access-pending page.
   the same per-owner PostgreSQL transaction advisory lock used by CRUD/reconciliation.
   Changed matches reject the entire commit with 409. Atomic import updates retain IDs;
   all authenticated reads/writes/exports preserve owner boundaries and origin checks.
+- LEDGER-02: editing a transaction's amount, date, or description preserves its
+  historical category identity and label, including after a category is removed.
+  Explicit category/direction changes resolve against the saved plan.
+- LEDGER-03: malformed transaction IDs return 404 before querying PostgreSQL.
+- LEDGER-04: manual edits and deletes require the previously read mutable-field
+  snapshot. Compare it under the owner ledger lock; stale writes return 409 and
+  preserve newer data, including changes made by imports. The UI retains failed
+  form edits and tells users to refresh before retrying.
 - IMPORT-01: read the private reference HTML as data, never execute its scripts.
   Import the original categories, suggestions, debt assumptions, balances, and events.
   Preview and explicitly save. No private report values are shipped as app defaults.

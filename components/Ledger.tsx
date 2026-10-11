@@ -56,7 +56,14 @@ function Editor({
     { id: "giving", name: "Giving" },
     { id: "debt", name: "Debt payments" },
   ];
-  // A removed category keeps its historical label; select a current category to edit.
+  if (
+    transaction?.kind === "expense" &&
+    !categories.some((c) => c.id === transaction.categoryId)
+  )
+    categories.push({
+      id: transaction.categoryId,
+      name: `${transaction.categoryName} (previous category)`,
+    });
   const effectiveCategory = categories.some((c) => c.id === category)
     ? category
     : categories[0].id;
@@ -83,6 +90,7 @@ function Editor({
               categoryId: kind === "income" ? "income" : effectiveCategory,
               description: data.get("description"),
               amountCents: Math.round(Number(data.get("amount")) * 100),
+              ...(transaction ? { expected: transaction } : {}),
             };
             const t = await request<Transaction>(
               transaction
@@ -473,7 +481,9 @@ export default function Ledger({
                       setBusy(true);
                       setError("");
                       try {
-                        await request(`/api/transactions/${row.id}`, "DELETE");
+                        await request(`/api/transactions/${row.id}`, "DELETE", {
+                          expected: row,
+                        });
                         onChange(transactions.filter((t) => t.id !== row.id));
                       } catch (err) {
                         setError(

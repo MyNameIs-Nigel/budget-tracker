@@ -44,7 +44,11 @@ async function reset(request: APIRequestContext) {
   ).json();
   for (const transaction of transactions)
     expect(
-      (await request.delete(`/api/transactions/${transaction.id}`)).ok(),
+      (
+        await request.delete(`/api/transactions/${transaction.id}`, {
+          data: { expected: transaction },
+        })
+      ).ok(),
     ).toBe(true);
   const checking = await (await request.get("/api/checking")).json();
   const savedBalance = await request.put("/api/checking", {
@@ -301,7 +305,11 @@ test("IMPORT-02 stale duplicate review fails atomically and reimport can skip al
     await (await page.request.get("/api/transactions")).json(),
   ).toHaveLength(1);
   const edited = await page.request.patch(`/api/transactions/${id}`, {
-    data: { ...rows[0], description: "Changed in another tab" },
+    data: {
+      ...rows[0],
+      description: "Changed in another tab",
+      expected: first.duplicates[0].matches[0],
+    },
   });
   expect(edited.ok()).toBe(true);
   const stale = await page.request.post("/api/transactions/import", {
@@ -727,4 +735,196 @@ test("IMPORT-05 semicolon CSV with separate credit/debit maps quoted description
     ]),
   );
   await expect(checking(page)).toContainText("$1,236.25");
+});
+
+test("LEDGER-02 editing details preserves a category's historical name after a rename", async ({
+  page,
+}) => {
+  await setup(page);
+  const id = await add(page.request, { description: "Historical groceries" });
+  const current = await (await page.request.get("/api/plan")).json();
+  current.plan.categories[0].name = "Food now";
+  expect((await page.request.put("/api/plan", { data: current })).ok()).toBe(
+    true,
+  );
+  const response = await page.request.patch(`/api/transactions/${id}`, {
+    data: {
+      date: today(),
+      kind: "expense",
+      categoryId: "category-0",
+      description: "Corrected description",
+      expected: (await (await page.request.get("/api/transactions")).json())[0],
+      amountCents: 3000,
+    },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+  expect((await response.json()).categoryName).toBe("Groceries");
+});
+
+test("LEDGER-02 editing an entry from a removed category does not silently recategorize it", async ({
+  page,
+}) => {
+  await setup(page);
+  const id = await add(page.request, { description: "Previous groceries" });
+  const current = await (await page.request.get("/api/plan")).json();
+  current.plan.categories.shift();
+  expect((await page.request.put("/api/plan", { data: current })).ok()).toBe(
+    true,
+  );
+  await page.goto("/budget");
+  await page
+    .getByRole("button", { name: "Edit Previous groceries", exact: true })
+    .click();
+  await expect(page.getByLabel("Category", { exact: true })).toHaveValue(
+    "category-0",
+  );
+  await page
+    .getByLabel("Description", { exact: true })
+    .fill("Corrected previous groceries");
+  await page
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  const rows: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  expect(rows.find((row) => row.id === id)).toMatchObject({
+    categoryId: "category-0",
+    categoryName: "Groceries",
+    description: "Corrected previous groceries",
+  });
+  // An explicit category change still resolves the label from the saved plan.
+  await page
+    .getByRole("button", {
+      name: "Edit Corrected previous groceries",
+      exact: true,
+    })
+    .click();
+  await page.getByLabel("Category", { exact: true }).selectOption("category-1");
+  await page
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  expect(await (await page.request.get("/api/export")).text()).toContain(
+    '"Eating out","Corrected previous groceries"',
+  );
+});
+
+test("LEDGER-03 malformed UUIDs return not found without database errors", async ({
+  page,
+}) => {
+  await setup(page);
+  for (const id of ["a".repeat(36), "-".repeat(36), "not-an-id"]) {
+    expect(
+      (await page.request.delete(`/api/transactions/${id}`)).status(),
+    ).toBe(404);
+    expect(
+      (
+        await page.request.patch(`/api/transactions/${id}`, {
+          data: {
+            date: today(),
+            kind: "income",
+            categoryId: "income",
+            description: "Invalid ID",
+            amountCents: 100,
+          },
+        })
+      ).status(),
+    ).toBe(404);
+  }
+});
+
+test("LEDGER-04 stale edits and deletes cannot overwrite newer transaction details", async ({
+  page,
+}) => {
+  await setup(page);
+  const id = await add(page.request, { description: "Original transaction" });
+  const original: Transaction = (
+    await (await page.request.get("/api/transactions")).json()
+  )[0];
+  const edited = await page.request.patch(`/api/transactions/${id}`, {
+    data: {
+      ...original,
+      description: "Newer transaction details",
+      amountCents: 3700,
+      expected: original,
+    },
+  });
+  expect(edited.ok(), await edited.text()).toBe(true);
+  const latest = await edited.json();
+  const stale = await page.request.patch(`/api/transactions/${id}`, {
+    data: { ...original, description: "Stale correction", expected: original },
+  });
+  expect.soft(stale.status()).toBe(409);
+  expect
+    .soft(
+      (
+        await page.request.delete(`/api/transactions/${id}`, {
+          data: { expected: original },
+        })
+      ).status(),
+    )
+    .toBe(409);
+  const persisted = await (await page.request.get("/api/transactions")).json();
+  expect.soft(persisted).toEqual([latest]);
+  expect(
+    (
+      await page.request.delete(`/api/transactions/${id}`, {
+        data: { expected: latest },
+      })
+    ).ok(),
+  ).toBe(true);
+});
+
+test("LEDGER-04 a stale editor keeps the user's correction and reports the conflict", async ({
+  page,
+}) => {
+  await setup(page);
+  const id = await add(page.request, { description: "Shared transaction" });
+  const original: Transaction = (
+    await (await page.request.get("/api/transactions")).json()
+  )[0];
+  await page.goto("/budget");
+  await page
+    .getByRole("button", { name: "Edit Shared transaction", exact: true })
+    .click();
+  const concurrent = await Promise.all(
+    ["Concurrent A", "Concurrent B"].map((description) =>
+      page.request.patch(`/api/transactions/${id}`, {
+        data: { ...original, description, expected: original },
+      }),
+    ),
+  );
+  expect(concurrent.map((response) => response.status()).sort()).toEqual([
+    200, 409,
+  ]);
+  await page
+    .getByLabel("Description", { exact: true })
+    .fill("My unsaved correction");
+  await page
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "changed in another tab" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Description", { exact: true })).toHaveValue(
+    "My unsaved correction",
+  );
+  await page
+    .getByRole("button", { name: "Close transaction form", exact: true })
+    .click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page
+    .getByRole("button", { name: "Delete Shared transaction", exact: true })
+    .click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "changed in another tab" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Refresh transactions", exact: true })
+    .click();
+  await expect(page.getByText(/^Concurrent [AB]$/)).toBeVisible();
+  await expect(
+    page.getByText("Shared transaction", { exact: true }),
+  ).not.toBeVisible();
 });

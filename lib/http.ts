@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { unstable_rethrow } from "next/navigation";
 import { getUser } from "./dal";
+import { JSON_BODY_LIMIT } from "./request-limits";
 
 export class HttpError extends Error {
   constructor(
@@ -24,10 +25,34 @@ export function sameOrigin(req: Request) {
     throw new HttpError(403, "Request origin is not allowed.");
 }
 export async function body<T>(req: Request, schema: z.ZodType<T>): Promise<T> {
-  if (!req.headers.get("content-type")?.startsWith("application/json"))
+  if (
+    req.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !==
+    "application/json"
+  )
     throw new HttpError(415, "Send JSON.");
-  const raw = await req.text();
-  if (raw.length > 200_000) throw new HttpError(413, "This file is too large.");
+  if (Number(req.headers.get("content-length")) > JSON_BODY_LIMIT) {
+    await req.body?.cancel().catch(() => {});
+    throw new HttpError(413, "This file is too large.");
+  }
+  const reader = req.body?.getReader();
+  const decoder = new TextDecoder();
+  let raw = "";
+  let bytes = 0;
+  try {
+    while (reader) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > JSON_BODY_LIMIT) {
+        await reader.cancel().catch(() => {});
+        throw new HttpError(413, "This file is too large.");
+      }
+      raw += decoder.decode(value, { stream: true });
+    }
+    raw += decoder.decode();
+  } finally {
+    reader?.releaseLock();
+  }
   let value: unknown;
   try {
     value = JSON.parse(raw);

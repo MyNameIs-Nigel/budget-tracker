@@ -127,3 +127,70 @@ describe("budget and forecast", () => {
         expect(balance).toBeGreaterThanOrEqual(0);
   });
 });
+
+it("FORECAST-02 snowball sends extra to the smallest remaining debt", () => {
+  const p = plan();
+  p.sweepSurplus = false;
+  p.strategy = "snowball";
+  p.extraPayment = 100;
+  p.debts[1].balance = 400;
+  expect(simulate(p).rows[0].payments).toEqual({ a: 50, b: 125 });
+});
+
+it("FORECAST-02 avalanche reorders by the active APR when promotions expire", () => {
+  const p = plan();
+  p.sweepSurplus = false;
+  p.strategy = "avalanche";
+  p.extraPayment = 100;
+  p.debts[0].minimum = p.debts[1].minimum = 0;
+  p.debts[0].apr = 36;
+  p.debts[1].apr = 12;
+  const result = simulate(p);
+  expect(result.rows[0].payments).toEqual({ a: 0, b: 100 });
+  expect(result.rows[1].payments).toEqual({ a: 100, b: 0 });
+});
+
+it("FORECAST-01/03 conserves cash and debt to the cent across strategies and partial months", () => {
+  const toCents = (amount: number) => Math.round(amount * 100);
+  const sumCents = (values: number[]) =>
+    values.reduce((sum, value) => sum + toCents(value), 0);
+  for (const strategy of ["priority", "snowball", "avalanche"] as const) {
+    for (const sweepSurplus of [true, false]) {
+      const p = plan();
+      p.strategy = strategy;
+      p.sweepSurplus = sweepSurplus;
+      p.balances.asOf = "2026-10-12";
+      p.balances.horizon = "2027-03";
+      p.income.pay = 2000.01;
+      p.fixed.givingRate = 7.5;
+      p.categories[0].amount = 103.37;
+      p.extraPayment = 50.01;
+      p.events = [
+        {
+          id: "cost",
+          month: "2026-11",
+          label: "One-off cost",
+          amount: -207.13,
+          borrowed: false,
+          giving: false,
+        },
+      ];
+      let cash = toCents(p.balances.checking);
+      let debt = sumCents(p.debts.map((d) => d.balance));
+      for (const row of simulate(p).rows) {
+        const paid = sumCents(Object.values(row.payments));
+        cash +=
+          toCents(row.income) +
+          toCents(row.events) -
+          toCents(row.expenses) -
+          paid;
+        debt += toCents(row.interest) - paid;
+        expect(toCents(row.checking)).toBe(cash);
+        expect(sumCents(Object.values(row.debts))).toBe(debt);
+        expect(Object.values(row.debts).every((balance) => balance >= 0)).toBe(
+          true,
+        );
+      }
+    }
+  }
+});

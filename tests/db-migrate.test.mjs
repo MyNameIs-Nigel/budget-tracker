@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { Pool } from "pg";
 import { runMigrations } from "../scripts/db-migrate.mjs";
+import { assertTestDatabaseUrl } from "../lib/local-database.mjs";
 
 const databaseUrl = process.env.MIGRATION_TEST_DATABASE_URL;
 
@@ -12,9 +13,7 @@ test(
   "migration safety against isolated local PostgreSQL",
   { skip: !databaseUrl },
   async (t) => {
-    const url = new URL(databaseUrl);
-    assert.ok(["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
-    assert.match(url.pathname, /^\/budget_migration_test(?:_[a-z0-9]+)?$/);
+    assertTestDatabaseUrl(databaseUrl, "migration");
     const pool = new Pool({ connectionString: databaseUrl });
     const folder = await mkdtemp(path.join(tmpdir(), "budget-migrations-"));
     const journalFile = path.join(folder, "meta/_journal.json");
