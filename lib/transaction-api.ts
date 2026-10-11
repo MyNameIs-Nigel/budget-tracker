@@ -43,6 +43,7 @@ export async function categoryName(
   userId: string,
   categoryId: string,
   kind: "income" | "expense",
+  connection: Pick<typeof db, "select" | "insert"> = db,
 ) {
   if (kind === "income") {
     if (categoryId !== "income")
@@ -57,7 +58,7 @@ export async function categoryName(
   };
   if (Object.hasOwn(fixed, categoryId))
     return fixed[categoryId as keyof typeof fixed];
-  const p = await getPlan(userId);
+  const p = await getPlan(userId, connection);
   const c = (p.data as Plan).categories.find((c) => c.id === categoryId);
   if (!c) throw new HttpError(400, "Choose a category from your saved budget.");
   return c.name;

@@ -66,3 +66,15 @@ it("IMPORT-01 extracts literal reference values without executing scripts", () =
   expect(p.debts[0].promoApr).toBe(8);
   expect(p.events[0].borrowed).toBe(true);
 });
+
+it("LEDGER-01 rejects year zero, which PostgreSQL cannot store", () => {
+  expect(
+    transactionSchema.safeParse({
+      date: "0000-01-01",
+      kind: "income",
+      categoryId: "income",
+      description: "Invalid year",
+      amountCents: 100,
+    }).success,
+  ).toBe(false);
+});

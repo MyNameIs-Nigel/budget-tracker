@@ -39,3 +39,17 @@ it("AUTH-04 test login requires local app and local database and no Vercel", () 
   ).toBe(false);
   expect(isLocalTestMode({ ...env, E2E_AUTH: "0" })).toBe(false);
 });
+
+it("AUTH-04 rejects connection parameters that override the apparent local database host", () => {
+  const env = {
+    E2E_AUTH: "1",
+    BETTER_AUTH_URL: "http://localhost:3100",
+  };
+  for (const DATABASE_URL of [
+    "postgresql://localhost/budget?host=remote.example",
+    "postgresql://localhost/budget?%68ost=remote.example",
+    "postgresql://localhost/budget?host=/tmp/postgres",
+    "https://localhost/budget",
+  ])
+    expect(isLocalTestMode({ ...env, DATABASE_URL })).toBe(false);
+});

@@ -14,9 +14,13 @@ async function login(page: Page) {
   expect(save.ok()).toBe(true);
   const tx = await (await page.request.get("/api/transactions")).json();
   for (const t of tx)
-    expect((await page.request.delete(`/api/transactions/${t.id}`)).ok()).toBe(
-      true,
-    );
+    expect(
+      (
+        await page.request.delete(`/api/transactions/${t.id}`, {
+          data: { expected: t },
+        })
+      ).ok(),
+    ).toBe(true);
   await page.goto("/budget");
   await expect(
     page.getByRole("heading", { name: "Know where your money stands." }),
@@ -216,7 +220,11 @@ test("AUTH-02/03 admin activation, isolation and immediate disabling", async ({
   });
   const tx = await posted.json();
   expect(
-    (await guest.request.delete(`/api/transactions/${tx.id}`)).status(),
+    (
+      await guest.request.delete(`/api/transactions/${tx.id}`, {
+        data: { expected: tx },
+      })
+    ).status(),
   ).toBe(404);
   expect(
     (
@@ -226,6 +234,7 @@ test("AUTH-02/03 admin activation, isolation and immediate disabling", async ({
           kind: "expense",
           categoryId: "category-0",
           description: "Intruder",
+          expected: tx,
           amountCents: 10,
         },
       })
@@ -339,4 +348,51 @@ test("IMPORT-01 preview and save a JSON plan without overwriting automatically",
   await expect(page.getByLabel("Take-home pay", { exact: true })).toHaveValue(
     "3500",
   );
+});
+
+test("PLAN-03 edits made during a save remain dirty without an all-saved confirmation", async ({
+  page,
+}) => {
+  await login(page);
+  const input = page.getByLabel("Take-home pay", { exact: true });
+  await input.fill("3100");
+  await input.blur();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/plan", async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole("button", { name: "Save plan", exact: true }).click();
+    await expect(
+      page.getByText("Saving your plan…", { exact: true }),
+    ).toBeVisible();
+    await input.fill("3200");
+    await input.blur();
+  } finally {
+    release();
+  }
+  await expect(
+    page.getByText("You have unsaved changes", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("All changes saved", { exact: true }),
+  ).not.toBeVisible();
+  expect(
+    (await (await page.request.get("/api/plan")).json()).plan.income.pay,
+  ).toBe(3100);
+  await expect(input).toHaveValue("3200");
+  await page.unroute("**/api/plan");
+  await page.getByRole("button", { name: "Save plan", exact: true }).click();
+  await expect(
+    page.getByText("All changes saved", { exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  await expect(input).toHaveValue("3200");
 });

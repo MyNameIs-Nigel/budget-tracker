@@ -1,3 +1,5 @@
+import { isLocalDatabaseUrl } from "./local-database.mjs";
+
 type Env = Record<string, string | undefined>;
 const loopback = (value: string | undefined) => {
   try {
@@ -15,7 +17,7 @@ export function isLocalTestMode(env: Env = process.env) {
     !env.VERCEL &&
     !env.VERCEL_ENV &&
     loopback(env.BETTER_AUTH_URL) &&
-    loopback(env.DATABASE_URL)
+    isLocalDatabaseUrl(env.DATABASE_URL)
   );
 }
 export function configuredAdmin(email: string, env: Env = process.env) {

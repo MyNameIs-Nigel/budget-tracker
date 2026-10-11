@@ -5,17 +5,20 @@ import { checkingBalances, plans, transactions } from "@/db/schema";
 import { emptyPlan } from "./budget";
 import type { CheckingBalance } from "./checking";
 
-export async function getPlan(userId: string) {
-  const [existing] = await db
+export async function getPlan(
+  userId: string,
+  connection: Pick<typeof db, "select" | "insert"> = db,
+) {
+  const [existing] = await connection
     .select()
     .from(plans)
     .where(eq(plans.userId, userId));
   if (existing) return existing;
-  await db
+  await connection
     .insert(plans)
     .values({ userId, data: emptyPlan() })
     .onConflictDoNothing();
-  const [created] = await db
+  const [created] = await connection
     .select()
     .from(plans)
     .where(eq(plans.userId, userId));

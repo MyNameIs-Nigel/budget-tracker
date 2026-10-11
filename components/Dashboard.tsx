@@ -601,7 +601,7 @@ export default function Dashboard({
                   : dirty
                     ? "You have unsaved changes"
                     : "Your plan is saved"}
-                {message && <small>{message}</small>}
+                {!dirty && message && <small>{message}</small>}
               </span>
             </div>
             <div className="save-actions">

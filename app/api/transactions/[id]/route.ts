@@ -1,23 +1,42 @@
 import { and, eq } from "drizzle-orm";
 import { transactions } from "@/db/schema";
 import { apiUser, body, handle, HttpError, json, sameOrigin } from "@/lib/http";
-import { transactionSchema } from "@/lib/ledger";
+import {
+  matchesTransactionSnapshot,
+  transactionDeleteSchema,
+  transactionIdSchema,
+  transactionUpdateSchema,
+} from "@/lib/ledger";
 import {
   categoryName,
   serializeTransaction,
   withLedgerLock,
 } from "@/lib/transaction-api";
 type Context = { params: Promise<{ id: string }> };
+const changedMessage =
+  "This transaction changed in another tab. Refresh transactions before trying again.";
 export function PATCH(req: Request, ctx: Context) {
   return handle(async () => {
     sameOrigin(req);
     const u = await apiUser();
     const { id } = await ctx.params;
-    if (!/^[0-9a-f-]{36}$/i.test(id))
+    if (!transactionIdSchema.safeParse(id).success)
       throw new HttpError(404, "Transaction not found.");
-    const value = await body(req, transactionSchema);
-    const name = await categoryName(u.id, value.categoryId, value.kind);
+    const { expected, ...value } = await body(req, transactionUpdateSchema);
     const t = await withLedgerLock(u.id, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(transactions)
+        .where(and(eq(transactions.id, id), eq(transactions.userId, u.id)));
+      if (!existing) throw new HttpError(404, "Transaction not found.");
+      if (!matchesTransactionSnapshot(existing, expected))
+        throw new HttpError(409, changedMessage);
+      // Editing an amount/date/description must not rewrite a historical label
+      // or require a deleted category to exist in today's plan.
+      const name =
+        existing.categoryId === value.categoryId && existing.kind === value.kind
+          ? existing.categoryName
+          : await categoryName(u.id, value.categoryId, value.kind, tx);
       const [updated] = await tx
         .update(transactions)
         .set({ ...value, categoryName: name })
@@ -34,9 +53,17 @@ export function DELETE(req: Request, ctx: Context) {
     sameOrigin(req);
     const u = await apiUser();
     const { id } = await ctx.params;
-    if (!/^[0-9a-f-]{36}$/i.test(id))
+    if (!transactionIdSchema.safeParse(id).success)
       throw new HttpError(404, "Transaction not found.");
+    const { expected } = await body(req, transactionDeleteSchema);
     const t = await withLedgerLock(u.id, async (tx) => {
+      const [existing] = await tx
+        .select()
+        .from(transactions)
+        .where(and(eq(transactions.id, id), eq(transactions.userId, u.id)));
+      if (!existing) throw new HttpError(404, "Transaction not found.");
+      if (!matchesTransactionSnapshot(existing, expected))
+        throw new HttpError(409, changedMessage);
       const [removed] = await tx
         .delete(transactions)
         .where(and(eq(transactions.id, id), eq(transactions.userId, u.id)))

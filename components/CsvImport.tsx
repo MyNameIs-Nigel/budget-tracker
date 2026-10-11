@@ -16,6 +16,7 @@ import type {
   ImportResult,
 } from "@/lib/import-transactions";
 import type { Transaction } from "@/lib/store";
+import { JSON_BODY_LIMIT } from "@/lib/request-limits";
 import "./CsvImport.css";
 
 const styles = {
@@ -74,7 +75,7 @@ const initialMapping: CsvMapping = {
 class ImportConflict extends Error {}
 async function importRequest<T>(payload: unknown): Promise<T> {
   const body = JSON.stringify(payload);
-  if (new TextEncoder().encode(body).length > 200_000)
+  if (new TextEncoder().encode(body).length > JSON_BODY_LIMIT)
     throw new Error(
       "This import is too large. Split the CSV into smaller files.",
     );
