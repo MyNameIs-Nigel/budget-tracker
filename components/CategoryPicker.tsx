@@ -21,10 +21,12 @@ export default function CategoryPicker({
     (row) => row.categoryId === rows[0].categoryId,
   );
   const [category, setCategory] = useState(
-    sameCategory && categories.some((entry) => entry.id === rows[0].categoryId)
-      ? rows[0].categoryId
-      : "",
+    sameCategory ? rows[0].categoryId : "",
   );
+  const previousCategory =
+    sameCategory &&
+    !categories.some((entry) => entry.id === rows[0].categoryId);
+  const canAssign = categories.some((entry) => entry.id === category);
   const [error, setError] = useState("");
   useEffect(() => {
     const previous = document.activeElement;
@@ -79,13 +81,6 @@ export default function CategoryPicker({
             ? rows[0].description
             : `${rows.length} expenses selected`}
         </p>
-        <p className="small muted">
-          {sameCategory
-            ? `Current category: ${rows[0].categoryName}`
-            : "Multiple current categories"}
-          . Each expense has one category. A new choice replaces the current
-          category.
-        </p>
         <label className="stack-field">
           <span>Spending category</span>
           <select
@@ -96,8 +91,15 @@ export default function CategoryPicker({
             onChange={(event) => setCategory(event.target.value)}
           >
             <option value="" disabled>
-              Choose a category
+              {sameCategory
+                ? "Choose a category"
+                : "Multiple current categories"}
             </option>
+            {previousCategory && (
+              <option value={rows[0].categoryId} disabled>
+                {rows[0].categoryName} (previous category)
+              </option>
+            )}
             {categories.map((entry) => (
               <option key={entry.id} value={entry.id}>
                 {entry.name}
@@ -105,12 +107,6 @@ export default function CategoryPicker({
             ))}
           </select>
         </label>
-        {category && (
-          <p className="small muted">
-            {rows.filter((row) => row.categoryId === category).length} already
-            in this category.
-          </p>
-        )}
         {error && (
           <p className="error-text small" role="alert">
             {error}
@@ -125,7 +121,7 @@ export default function CategoryPicker({
           >
             Cancel
           </button>
-          <button className="btn primary" disabled={busy || !category}>
+          <button className="btn primary" disabled={busy || !canAssign}>
             {busy && <LoaderCircle className="spin" size={16} />}Assign category
           </button>
         </div>

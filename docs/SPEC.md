@@ -21,6 +21,14 @@ disabled, can sign in, and see an access-pending page.
   can leave an over-budget plan; show the shortfall without silently changing it.
 - PLAN-03: explicit save, dirty warning, retryable failure, optimistic version checks,
   and an import preview prevent silently losing changes or overwriting another tab.
+- PLAN-04: previous-spending references in Your plan and Plan settings derive from
+  the preceding calendar month's categorized expense transactions in cents, keyed
+  by category identity. Income and other months are excluded; missing history is
+  distinct from zero recorded spending. Ledger changes and calendar rollover
+  update references. Copying last month's spending is an explicit draft edit with
+  the existing allocation/amount bounds and save behavior; forecast snapshots stay
+  independent. Legacy baseline values remain compatible with saved/imported plans
+  but are not used as the spending reference or editable through settings.
 - FORECAST-01: use cents; accrue estimated monthly APR interest on opening debt
   balances; prorate the first month's interest and spending by remaining days.
   Receive monthly income in two equal installments on configurable days. Giving
@@ -71,6 +79,9 @@ disabled, can sign in, and see an access-pending page.
   amount filters; distinguish an empty ledger from no matches. Filtering preserves
   full-ledger balances and selected-month totals/comparisons. Changing filters
   clears expense selections. Income cannot receive spending categories.
+  The category picker shows the selected category without a ledger, category item
+  counts, or redundant current-category explanation. Removed historical categories
+  remain visible, with a saved category required for a new assignment.
 - LEDGER-06: assign one spending category to selected expenses (up to 200 and the
   shared JSON byte limit). Check every owner-scoped prior snapshot under the ledger
   lock before writing; stale batches reject atomically. Report changed counts,
