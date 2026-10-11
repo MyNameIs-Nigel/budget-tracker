@@ -65,6 +65,18 @@ disabled, can sign in, and see an access-pending page.
   snapshot. Compare it under the owner ledger lock; stale writes return 409 and
   preserve newer data, including changes made by imports. The UI retains failed
   form edits and tells users to refresh before retrying.
+- LEDGER-05: category badges display a visible label and stable color indicator;
+  expenses can be recategorized directly. Description search matches every partial
+  word regardless of case/order. Combine category, direction, inclusive date and
+  amount filters; distinguish an empty ledger from no matches. Filtering preserves
+  full-ledger balances and selected-month totals/comparisons. Changing filters
+  clears expense selections. Income cannot receive spending categories.
+- LEDGER-06: assign one spending category to selected expenses (up to 200 and the
+  shared JSON byte limit). Check every owner-scoped prior snapshot under the ledger
+  lock before writing; stale batches reject atomically. Report changed counts,
+  highlight updated rows, and offer a 15-minute undo for the latest assignment.
+  A server-signed, owner-bound undo receipt restores historical category labels
+  only when every affected transaction still matches its post-assignment snapshot.
 - IMPORT-01: read the private reference HTML as data, never execute its scripts.
   Import the original categories, suggestions, debt assumptions, balances, and events.
   Preview and explicitly save. No private report values are shipped as app defaults.

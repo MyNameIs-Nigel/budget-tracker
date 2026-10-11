@@ -79,6 +79,22 @@ comparison is available beneath the ledger when a month is selected. Checking
 and forecast snapshots are independent; no migration guesses a checking balance
 from a planning value.
 
+Search descriptions with partial words in any order, and combine category,
+income/expense, date, and amount filters. Search covers your history unless a
+month is selected. **Uncategorized** shows the remaining expenses for that month
+or the whole ledger. Category badges show a color dot and the historical category
+name; click a badge to change just that expense's category.
+
+Select expense checkboxes, then **Assign category** to apply one spending category
+to the selection. A new category replaces the previous category. Select-all covers
+matching expenses, up to 200 per batch; income is never selected. Changing a filter
+clears the selection. Assignments save atomically, with an updated-row highlight
+and **Undo category change** for the most recent assignment (15 minutes, while
+this view remains open). Undo restores the original labels, including removed
+categories, and refuses to overwrite newer transaction edits. Search and filters
+only narrow the list; checking balances and the monthly plan comparison retain
+their full-ledger calculations. No matching rows has its own empty state.
+
 ## Import transactions from CSV
 
 Choose **Checking → Import CSV**. The file stays in your browser while you select

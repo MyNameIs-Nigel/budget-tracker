@@ -138,6 +138,518 @@ async function upload(page: Page, csv: string) {
   ).toBeVisible();
 }
 
+test("LEDGER-05 search, filters, bulk category badges and undo preserve balances", async ({
+  page,
+}, testInfo) => {
+  await setup(page);
+  await add(page.request, {
+    description: "North Market weekly shop",
+    categoryId: "uncategorized",
+    amountCents: 4825,
+  });
+  await add(page.request, {
+    description: "North Market earlier shop",
+    categoryId: "uncategorized",
+    date: dayOffset(today(), -40),
+    amountCents: 3600,
+  });
+  await add(page.request, {
+    description: "Fictional fuel",
+    categoryId: "category-2",
+    amountCents: 1500,
+  });
+  await add(page.request, {
+    description: "North Market refund",
+    kind: "income",
+    categoryId: "income",
+    amountCents: 1000,
+  });
+  await page.goto("/budget");
+  const balanceBefore = await checking(page).innerText();
+  await expect(
+    page.getByRole("button", { name: "Uncategorized · 2", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("searchbox", { name: "Search transactions", exact: true })
+    .fill("SHOP mark");
+  await expect(page.locator(".transaction-row")).toHaveCount(2);
+  await expect(page.locator(".transaction-description mark")).toHaveCount(4);
+  await page
+    .getByRole("button", { name: "Uncategorized · 2", exact: true })
+    .click();
+  await page
+    .getByRole("checkbox", {
+      name: "Select all 2 matching expenses",
+      exact: true,
+    })
+    .check();
+  await page
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(
+    page.getByRole("combobox", { name: "Spending category", exact: true }),
+  ).toBeFocused();
+  await accessibleAndFits(page);
+  await page
+    .getByRole("combobox", { name: "Spending category", exact: true })
+    .selectOption("category-0");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(
+    page.getByText("2 transactions assigned to Groceries.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "No matching transactions.",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("searchbox", { name: "Search transactions", exact: true }),
+  ).toBeFocused();
+  await page
+    .getByRole("button", { name: "Remove category filter", exact: true })
+    .click();
+  await expect(
+    page.locator(".category-badge").filter({ hasText: "Groceries" }),
+  ).toHaveCount(2);
+  await expect(page.locator(".transaction-updated")).toHaveCount(2);
+  expect(await checking(page).innerText()).toBe(balanceBefore);
+  await accessibleAndFits(page);
+  await page.screenshot({
+    path: `.local/categories-${testInfo.project.name}.png`,
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: "Undo category change", exact: true })
+    .click();
+  await expect(
+    page.locator(".category-badge").filter({ hasText: "Uncategorized" }),
+  ).toHaveCount(2);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Uncategorized · 2", exact: true }),
+  ).toBeVisible();
+  expect(await checking(page).innerText()).toBe(balanceBefore);
+
+  // Filters combine, and changing them clears selections rather than editing hidden rows.
+  await page
+    .getByRole("checkbox", { name: "Select Fictional fuel", exact: true })
+    .check();
+  await page
+    .getByRole("combobox", { name: "Category filter", exact: true })
+    .selectOption("category-2");
+  await expect(
+    page.getByRole("button", { name: "Assign category", exact: true }),
+  ).not.toBeVisible();
+  await page.getByText("Dates and amounts", { exact: true }).click();
+  await page.getByLabel("From date", { exact: true }).fill(today());
+  await page.getByLabel("Through date", { exact: true }).fill(today());
+  await page.getByLabel("Minimum amount (USD)", { exact: true }).fill("15");
+  await page.getByLabel("Maximum amount (USD)", { exact: true }).fill("15");
+  await expect(page.locator(".transaction-row")).toHaveCount(1);
+  await accessibleAndFits(page);
+  await page.getByLabel("Maximum amount (USD)", { exact: true }).fill("14.99");
+  await expect(
+    page.getByRole("heading", {
+      name: "No matching transactions.",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Show all transactions", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Transaction type", exact: true })
+    .selectOption("income");
+  await expect(page.locator(".transaction-row")).toHaveCount(1);
+  await expect(page.getByRole("checkbox", { name: /^Select/ })).toHaveCount(0);
+});
+
+test("LEDGER-05 quick category picker supports keyboard, mixed selections and historical undo", async ({
+  page,
+}) => {
+  await setup(page);
+  const firstId = await add(page.request, { description: "Historical market" });
+  await add(page.request, {
+    description: "Fictional cafe",
+    categoryId: "category-1",
+  });
+  const savedPlan = await (await page.request.get("/api/plan")).json();
+  savedPlan.plan.categories.shift();
+  expect((await page.request.put("/api/plan", { data: savedPlan })).ok()).toBe(
+    true,
+  );
+  await page.goto("/budget");
+  const badge = page.getByRole("button", {
+    name: "Change category for Historical market, current category Groceries",
+    exact: true,
+  });
+  await badge.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("combobox", { name: "Spending category", exact: true }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(badge).toBeFocused();
+  await page
+    .getByRole("checkbox", {
+      name: "Select all 2 matching expenses",
+      exact: true,
+    })
+    .check();
+  await page
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(page.getByText(/Multiple current categories/)).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "Spending category", exact: true })
+    .selectOption("category-1");
+  await expect(
+    page.getByText("1 already in this category.", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(
+    page.getByText("1 transaction assigned to Eating out.", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Undo category change", exact: true })
+    .click();
+  await expect(badge).toBeVisible();
+  const rows: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  expect(rows.find((row) => row.id === firstId)).toMatchObject({
+    categoryId: "category-0",
+    categoryName: "Groceries",
+  });
+  await accessibleAndFits(page);
+});
+
+test("LEDGER-06 bulk categories reject stale batches and undo without partial writes", async ({
+  page,
+}) => {
+  await setup(page);
+  await add(page.request, {
+    description: "First fictional purchase",
+    categoryId: "uncategorized",
+  });
+  await add(page.request, {
+    description: "Second fictional purchase",
+    categoryId: "uncategorized",
+  });
+  const original: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  const batch = {
+    categoryId: "category-0",
+    transactions: original.map((row) => ({ id: row.id, expected: row })),
+  };
+  const responses = await Promise.all([
+    page.request.patch("/api/transactions/categories", { data: batch }),
+    page.request.patch(`/api/transactions/${original[0].id}`, {
+      data: {
+        ...original[0],
+        description: "Newer details",
+        expected: original[0],
+      },
+    }),
+  ]);
+  expect(responses.map((response) => response.status()).sort()).toEqual([
+    200, 409,
+  ]);
+  let latest: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  if (responses[0].status() === 409) {
+    expect(latest.every((row) => row.categoryId === "uncategorized")).toBe(
+      true,
+    );
+    const assigned = await page.request.patch("/api/transactions/categories", {
+      data: {
+        ...batch,
+        transactions: latest.map((row) => ({ id: row.id, expected: row })),
+      },
+    });
+    expect(assigned.ok(), await assigned.text()).toBe(true);
+    responses[0] = assigned;
+  } else
+    expect(latest.every((row) => row.categoryId === "category-0")).toBe(true);
+  const { undoToken } = await responses[0].json();
+  latest = await (await page.request.get("/api/transactions")).json();
+  const edited = await page.request.patch(`/api/transactions/${latest[0].id}`, {
+    data: { ...latest[0], amountCents: 9876, expected: latest[0] },
+  });
+  expect(edited.ok()).toBe(true);
+  const beforeUndo = await (await page.request.get("/api/transactions")).json();
+  expect(
+    (
+      await page.request.post("/api/transactions/categories", {
+        data: { undoToken },
+      })
+    ).status(),
+  ).toBe(409);
+  expect(await (await page.request.get("/api/transactions")).json()).toEqual(
+    beforeUndo,
+  );
+  expect(
+    (
+      await page.request.patch("/api/transactions/categories", { data: batch })
+    ).status(),
+  ).toBe(409);
+  expect(await (await page.request.get("/api/transactions")).json()).toEqual(
+    beforeUndo,
+  );
+});
+
+test("LEDGER-06 bulk categories enforce ownership, access, origin and input bounds", async ({
+  page,
+  browser,
+}) => {
+  await setup(page);
+  await add(page.request, { description: "Owner fictional expense" });
+  const rows: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  const data = {
+    categoryId: "category-1",
+    transactions: rows.map((row) => ({ id: row.id, expected: row })),
+  };
+  expect(
+    (
+      await page.request.patch("/api/transactions/categories", {
+        data,
+        headers: { Origin: "https://evil.example" },
+      })
+    ).status(),
+  ).toBe(403);
+  for (const change of [
+    { categoryId: "missing-category" },
+    { categoryId: "income" },
+    { transactions: [] },
+    { transactions: [...data.transactions, ...data.transactions] },
+    { transactions: [{ ...data.transactions[0], id: "invalid" }] },
+    { transactions: Array.from({ length: 201 }, () => data.transactions[0]) },
+  ])
+    expect(
+      (
+        await page.request.patch("/api/transactions/categories", {
+          data: { ...data, ...change },
+        })
+      ).status(),
+    ).toBe(400);
+  const incomeId = await add(page.request, {
+    description: "Fictional income",
+    kind: "income",
+    categoryId: "income",
+  });
+  const income: Transaction = (
+    await (await page.request.get("/api/transactions")).json()
+  ).find((row: Transaction) => row.id === incomeId);
+  expect(
+    (
+      await page.request.patch("/api/transactions/categories", {
+        data: {
+          ...data,
+          transactions: [
+            ...data.transactions,
+            { id: incomeId, expected: income },
+          ],
+        },
+      })
+    ).status(),
+  ).toBe(400);
+  expect(
+    (
+      await page.request.post("/api/transactions/categories", {
+        data: { undoToken: "forged.receipt" },
+      })
+    ).status(),
+  ).toBe(400);
+  const assigned = await page.request.patch("/api/transactions/categories", {
+    data,
+  });
+  expect(assigned.ok()).toBe(true);
+  const { undoToken } = await assigned.json();
+  const other = await browser.newContext({
+    baseURL: origin,
+    extraHTTPHeaders: { Origin: origin },
+  });
+  try {
+    expect(
+      (
+        await other.request.patch("/api/transactions/categories", { data })
+      ).status(),
+    ).toBe(401);
+    const userId = await signIn(other.request, "other");
+    expect(
+      (
+        await page.request.patch(`/api/admin/users/${userId}`, {
+          data: { disabled: true },
+        })
+      ).ok(),
+    ).toBe(true);
+    expect(
+      (
+        await other.request.patch("/api/transactions/categories", { data })
+      ).status(),
+    ).toBe(403);
+    expect(
+      (
+        await page.request.patch(`/api/admin/users/${userId}`, {
+          data: { disabled: false },
+        })
+      ).ok(),
+    ).toBe(true);
+    expect(
+      (
+        await other.request.patch("/api/transactions/categories", { data })
+      ).status(),
+    ).toBe(404);
+    expect(
+      (
+        await other.request.post("/api/transactions/categories", {
+          data: { undoToken },
+        })
+      ).status(),
+    ).toBe(400);
+    expect(
+      (
+        await page.request.patch(`/api/admin/users/${userId}`, {
+          data: { disabled: true },
+        })
+      ).ok(),
+    ).toBe(true);
+    expect(
+      (
+        await other.request.post("/api/transactions/categories", {
+          data: { undoToken },
+        })
+      ).status(),
+    ).toBe(403);
+    expect(
+      (
+        await page.request.post("/api/transactions/categories", {
+          data: { undoToken },
+          headers: { Origin: "https://evil.example" },
+        })
+      ).status(),
+    ).toBe(403);
+  } finally {
+    await other.close();
+  }
+});
+
+test("LEDGER-06 CSV updates invalidate category selections and undo atomically", async ({
+  page,
+}) => {
+  await setup(page);
+  const firstId = await add(page.request, {
+    description: "Fictional market",
+    categoryId: "uncategorized",
+    amountCents: 1200,
+  });
+  await add(page.request, {
+    description: "Fictional cafe",
+    categoryId: "uncategorized",
+    amountCents: 2500,
+  });
+  const original: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  async function importCorrection(description: string) {
+    const rows: Row[] = [
+      {
+        row: 2,
+        date: today(),
+        kind: "expense",
+        categoryId: "category-0",
+        description,
+        amountCents: 1200,
+      },
+    ];
+    const review = await preview(page.request, rows);
+    const result = await page.request.post("/api/transactions/import", {
+      data: {
+        rows,
+        commit: true,
+        reviewToken: review.reviewToken,
+        decisions: [
+          {
+            row: 2,
+            action: "update",
+            targetId: firstId,
+            expected: review.duplicates[0].matches.find(
+              (row) => row.id === firstId,
+            ),
+          },
+        ],
+      },
+    });
+    expect(result.ok(), await result.text()).toBe(true);
+  }
+  await page.goto("/budget");
+  await page
+    .getByRole("checkbox", {
+      name: "Select all 2 matching expenses",
+      exact: true,
+    })
+    .check();
+  await page
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Spending category", exact: true })
+    .selectOption("category-1");
+  await importCorrection("CSV correction");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "changed in another tab" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "Spending category", exact: true }),
+  ).toHaveValue("category-1");
+  await accessibleAndFits(page);
+  const afterImport: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  expect(afterImport.find((row) => row.id !== firstId)).toEqual(
+    original.find((row) => row.id !== firstId),
+  );
+  await page
+    .getByRole("button", { name: "Close category picker", exact: true })
+    .click();
+  const assigned = await page.request.patch("/api/transactions/categories", {
+    data: {
+      categoryId: "category-1",
+      transactions: afterImport.map((row) => ({ id: row.id, expected: row })),
+    },
+  });
+  expect(assigned.ok()).toBe(true);
+  const { undoToken } = await assigned.json();
+  await importCorrection("Later CSV correction");
+  const beforeUndo = await (await page.request.get("/api/transactions")).json();
+  expect(
+    (
+      await page.request.post("/api/transactions/categories", {
+        data: { undoToken },
+      })
+    ).status(),
+  ).toBe(409);
+  expect(await (await page.request.get("/api/transactions")).json()).toEqual(
+    beforeUndo,
+  );
+});
+
 test("CHECKING-01 bank reconciliation and transaction CRUD recalculate today's balance", async ({
   page,
 }, testInfo) => {
