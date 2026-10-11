@@ -332,6 +332,171 @@ test("LEDGER-05 quick category picker supports keyboard, mixed selections and hi
   await accessibleAndFits(page);
 });
 
+test("LEDGER-05 undo and filters stay accurate after no-op picks, edits and renames", async ({
+  page,
+}) => {
+  await setup(page);
+  await add(page.request, { description: "Fictional market run" });
+  await add(page.request, {
+    description: "Fictional cafe",
+    categoryId: "uncategorized",
+  });
+  const savedPlan = await (await page.request.get("/api/plan")).json();
+  savedPlan.plan.categories.shift();
+  expect((await page.request.put("/api/plan", { data: savedPlan })).ok()).toBe(
+    true,
+  );
+  await page.goto("/budget");
+  const search = page.getByRole("searchbox", {
+    name: "Search transactions",
+    exact: true,
+  });
+  await search.fill("mark market");
+  await expect(page.locator(".transaction-description mark")).toHaveText([
+    "market",
+  ]);
+  await search.fill("");
+  const categoryFilter = page.getByRole("combobox", {
+    name: "Category filter",
+    exact: true,
+  });
+  await categoryFilter.selectOption("category-0");
+
+  // The server's current name is reported, even when this tab's plan is stale.
+  const renamed = await (await page.request.get("/api/plan")).json();
+  renamed.plan.categories.find(
+    (category: { id: string }) => category.id === "category-1",
+  ).name = "Fictional dining";
+  expect((await page.request.put("/api/plan", { data: renamed })).ok()).toBe(
+    true,
+  );
+  await page
+    .getByRole("button", { name: /^Change category for Fictional market run/ })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Spending category", exact: true })
+    .selectOption("category-1");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(
+    page.getByText("1 transaction assigned to Fictional dining.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  // Reassigning every row out of a previous category keeps the filter visible.
+  await expect(categoryFilter).toHaveValue("category-0");
+  await page
+    .getByRole("button", { name: "Clear search and filters", exact: true })
+    .click();
+
+  // Choosing a current category is a no-op and keeps the earlier Undo.
+  const undo = page.getByRole("button", {
+    name: "Undo category change",
+    exact: true,
+  });
+  await page
+    .getByRole("button", { name: /^Change category for Fictional market run/ })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(
+    page.getByText("These expenses are already in that category.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(undo).toBeVisible();
+
+  // Editing an undoable row in this tab withdraws Undo instead of offering a 409.
+  await page
+    .getByRole("button", { name: "Edit Fictional market run", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByLabel("Description", { exact: true })
+    .fill("Fictional market trip");
+  await page
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(undo).not.toBeVisible();
+
+  // A rejected Undo is withdrawn rather than left to fail repeatedly.
+  await page
+    .getByRole("button", { name: /^Change category for Fictional cafe/ })
+    .click();
+  await page
+    .getByRole("combobox", { name: "Spending category", exact: true })
+    .selectOption("category-1");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(undo).toBeVisible();
+  const rows: Transaction[] = await (
+    await page.request.get("/api/transactions")
+  ).json();
+  const cafe = rows.find((row) => row.description === "Fictional cafe")!;
+  expect(
+    (
+      await page.request.patch(`/api/transactions/${cafe.id}`, {
+        data: { ...cafe, amountCents: 1234, expected: cafe },
+      })
+    ).ok(),
+  ).toBe(true);
+  await undo.click();
+  await expect(
+    page.locator(".error-text").filter({ hasText: "changed in another tab" }),
+  ).toBeVisible();
+  await expect(undo).not.toBeVisible();
+  await accessibleAndFits(page);
+});
+
+test("LEDGER-06 undo receipts reject rows that changed and returned, and replays", async ({
+  page,
+}) => {
+  await setup(page);
+  await add(page.request, {
+    description: "Fictional repeat purchase",
+    categoryId: "uncategorized",
+  });
+  const current = async () =>
+    (
+      (await (
+        await page.request.get("/api/transactions")
+      ).json()) as Transaction[]
+    )[0];
+  const assign = async (categoryId: string) => {
+    const row = await current();
+    const response = await page.request.patch("/api/transactions/categories", {
+      data: { categoryId, transactions: [{ id: row.id, expected: row }] },
+    });
+    expect(response.ok(), await response.text()).toBe(true);
+    return (await response.json()).undoToken as string;
+  };
+  const undo = (undoToken: string) =>
+    page.request.post("/api/transactions/categories", {
+      data: { undoToken },
+    });
+  const first = await assign("category-0");
+  await assign("category-1");
+  const latest = await assign("category-0");
+  const beforeUndo = await current();
+  // The row has the same values as after the first assignment, but newer writes.
+  expect((await undo(first)).status()).toBe(409);
+  expect(await current()).toEqual(beforeUndo);
+  expect((await undo(latest)).ok()).toBe(true);
+  expect(await current()).toMatchObject({ categoryId: "category-1" });
+  await assign("category-0");
+  const redone = await current();
+  // A receipt is single-use, even after the same assignment is made again.
+  expect((await undo(latest)).status()).toBe(409);
+  expect(await current()).toEqual(redone);
+});
+
 test("LEDGER-06 bulk categories reject stale batches and undo without partial writes", async ({
   page,
 }) => {

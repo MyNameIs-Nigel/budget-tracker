@@ -16,6 +16,9 @@ const receiptSchema = z.object({
           categoryName: z.string().min(1).max(80),
         }),
         expected: transactionSnapshotSchema,
+        // PostgreSQL row version (xmin) written by the assignment. Any later
+        // write, including one restoring identical values, replaces it.
+        version: z.string().regex(/^\d{1,10}$/),
       }),
     )
     .min(1)
@@ -33,7 +36,7 @@ function secret() {
 }
 function signature(payload: string) {
   return createHmac("sha256", secret())
-    .update(`category-undo:v1:${payload}`)
+    .update(`category-undo:v2:${payload}`)
     .digest();
 }
 export function createCategoryUndo(

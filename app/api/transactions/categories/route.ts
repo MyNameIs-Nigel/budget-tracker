@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { transactions } from "@/db/schema";
 import { categoryAssignmentSchema } from "@/lib/category-assignment";
 import {
@@ -15,6 +15,12 @@ import {
   type LedgerTransaction,
 } from "@/lib/transaction-api";
 
+// xmin changes on every write, so it detects rows that changed and returned.
+const versioned = {
+  ...getTableColumns(transactions),
+  version: sql<string>`xmin::text`,
+};
+
 const conflict =
   "These transactions changed in another tab. Refresh transactions and review your selection before trying again.";
 
@@ -24,10 +30,11 @@ async function checkedRows(
   input: {
     id: string;
     expected: Parameters<typeof matchesTransactionSnapshot>[1];
+    version?: string;
   }[],
 ) {
   const rows = await tx
-    .select()
+    .select(versioned)
     .from(transactions)
     .where(
       and(
@@ -39,10 +46,13 @@ async function checkedRows(
       ),
     );
   const byId = new Map(rows.map((row) => [row.id, row]));
-  return input.map(({ id, expected }) => {
+  return input.map(({ id, expected, version }) => {
     const row = byId.get(id);
     if (!row) throw new HttpError(404, "Transaction not found.");
-    if (!matchesTransactionSnapshot(row, expected))
+    if (
+      !matchesTransactionSnapshot(row, expected) ||
+      (version !== undefined && row.version !== version)
+    )
       throw new HttpError(409, conflict);
     if (row.kind !== "expense")
       throw new HttpError(400, "Only expenses have spending categories.");
@@ -77,7 +87,7 @@ export function PATCH(req: Request) {
             ),
           ),
         )
-        .returning();
+        .returning(versioned);
       const before = new Map(changed.map((row) => [row.id, row]));
       const undoToken = createCategoryUndo(
         user.id,
@@ -88,6 +98,7 @@ export function PATCH(req: Request) {
             categoryName: before.get(row.id)!.categoryName,
           },
           expected: serializeTransaction(row),
+          version: row.version,
         })),
       );
       if (undoToken.length > 180_000)
@@ -114,22 +125,32 @@ export function POST(req: Request) {
       );
     const updated = await withLedgerLock(user.id, async (tx) => {
       await checkedRows(tx, user.id, changes);
-      const restored = [];
-      for (const change of changes) {
-        // Only a server-signed receipt can restore a removed category or old name.
-        const [row] = await tx
-          .update(transactions)
-          .set(change.before)
-          .where(
-            and(
-              eq(transactions.userId, user.id),
-              eq(transactions.id, change.id),
-            ),
-          )
-          .returning();
-        restored.push(serializeTransaction(row));
+      const groups = new Map<
+        string,
+        { before: (typeof changes)[number]["before"]; ids: string[] }
+      >();
+      for (const { id, before } of changes) {
+        const key = JSON.stringify([before.categoryId, before.categoryName]);
+        const group = groups.get(key) ?? { before, ids: [] };
+        group.ids.push(id);
+        groups.set(key, group);
       }
-      return restored;
+      const restored = [];
+      for (const { before, ids } of groups.values())
+        // Only a server-signed receipt can restore a removed category or old name.
+        restored.push(
+          ...(await tx
+            .update(transactions)
+            .set(before)
+            .where(
+              and(
+                eq(transactions.userId, user.id),
+                inArray(transactions.id, ids),
+              ),
+            )
+            .returning()),
+        );
+      return restored.map(serializeTransaction);
     });
     return json({ transactions: updated, undoToken: null });
   });

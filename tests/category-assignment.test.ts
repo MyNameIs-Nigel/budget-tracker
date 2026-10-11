@@ -43,6 +43,7 @@ describe("category assignment boundaries", () => {
         id,
         expected,
         before: { categoryId: "removed", categoryName: "Old groceries" },
+        version: "4242",
       },
     ];
     const token = createCategoryUndo("owner", changes, 1000);
@@ -61,5 +62,8 @@ describe("category assignment boundaries", () => {
     ).toBeNull();
     expect(readCategoryUndo(`${token}.extra`, "owner", 1001)).toBeNull();
     expect(readCategoryUndo("invalid", "owner", 1001)).toBeNull();
+    expect(() =>
+      createCategoryUndo("owner", [{ ...changes[0], version: "" }], 1000),
+    ).toThrow();
   });
 });

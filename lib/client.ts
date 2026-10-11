@@ -1,3 +1,12 @@
+/** The server answered and rejected the request; retrying will not help. */
+export class RequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 export async function request<T>(
   url: string,
   method = "GET",
@@ -17,7 +26,10 @@ export async function request<T>(
     throw new Error("Could not connect. Your edits are still here; try again.");
   }
   if (!res.ok)
-    throw new Error(value.message ?? "Could not complete this request.");
+    throw new RequestError(
+      value.message ?? "Could not complete this request.",
+      res.status,
+    );
   return value as T;
 }
 export function download(name: string, content: string, type: string) {

@@ -2,6 +2,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { transactions } from "@/db/schema";
+import { fixedExpenseCategories } from "./categories";
 import { getPlan } from "./store";
 import type { Transaction } from "./store";
 import type { Plan } from "./budget";
@@ -50,12 +51,7 @@ export async function categoryName(
       throw new HttpError(400, "Choose the income category.");
     return "Income";
   }
-  const fixed = {
-    uncategorized: "Uncategorized",
-    bills: "Insurance & bills",
-    giving: "Giving",
-    debt: "Debt payments",
-  };
+  const fixed = fixedExpenseCategories;
   if (Object.hasOwn(fixed, categoryId))
     return fixed[categoryId as keyof typeof fixed];
   const p = await getPlan(userId, connection);

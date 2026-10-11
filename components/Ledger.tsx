@@ -12,7 +12,7 @@ import {
   Upload,
 } from "lucide-react";
 import { money, today, totals, type Plan } from "@/lib/budget";
-import { request } from "@/lib/client";
+import { request, RequestError } from "@/lib/client";
 import type { Transaction } from "@/lib/store";
 import {
   runningBalances,
@@ -33,6 +33,7 @@ import {
   CATEGORY_BATCH_LIMIT,
   type CategoryAssignmentResult,
 } from "@/lib/category-assignment";
+import { expenseCategories, fixedExpenseCategories } from "@/lib/categories";
 
 function DescriptionMatch({
   description,
@@ -45,6 +46,8 @@ function DescriptionMatch({
     .trim()
     .split(/\s+/)
     .filter(Boolean)
+    // Longer terms first, so "mark market" highlights all of "market".
+    .sort((a, b) => b.length - a.length)
     .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   if (!terms.length) return <>{description}</>;
   const pattern = new RegExp(`(${terms.join("|")})`, "gi");
@@ -86,13 +89,7 @@ function Editor({
       if (previous instanceof HTMLElement) previous.focus();
     };
   }, []);
-  const categories = [
-    { id: "uncategorized", name: "Uncategorized" },
-    ...plan.categories,
-    { id: "bills", name: "Insurance & bills" },
-    { id: "giving", name: "Giving" },
-    { id: "debt", name: "Debt payments" },
-  ];
+  const categories = expenseCategories(plan);
   if (
     transaction?.kind === "expense" &&
     !categories.some((c) => c.id === transaction.categoryId)
@@ -277,13 +274,15 @@ export default function Ledger({
   });
   const [selected, setSelected] = useState<string[]>([]);
   const [categorizing, setCategorizing] = useState<Transaction[] | null>(null);
-  const [undoToken, setUndoToken] = useState<string | null>(null);
+  const [undo, setUndo] = useState<{ token: string; ids: string[] } | null>(
+    null,
+  );
   const [updatedIds, setUpdatedIds] = useState<string[]>([]);
   useEffect(() => {
-    if (!undoToken) return;
-    const timer = setTimeout(() => setUndoToken(null), 15 * 60_000);
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), 15 * 60_000);
     return () => clearTimeout(timer);
-  }, [undoToken]);
+  }, [undo]);
   useEffect(() => {
     if (!updatedIds.length) return;
     const timer = setTimeout(() => setUpdatedIds([]), 4000);
@@ -318,9 +317,13 @@ export default function Ledger({
   const t = totals(plan);
   const cats = [
     ...plan.categories,
-    { id: "bills", name: "Insurance & bills", amount: t.bills },
-    { id: "giving", name: "Giving", amount: t.giving },
-    { id: "debt", name: "Debt payments", amount: t.minimums + t.extra },
+    { id: "bills", name: fixedExpenseCategories.bills, amount: t.bills },
+    { id: "giving", name: fixedExpenseCategories.giving, amount: t.giving },
+    {
+      id: "debt",
+      name: fixedExpenseCategories.debt,
+      amount: t.minimums + t.extra,
+    },
   ];
   const known = new Set(cats.map((c) => c.id));
   for (const row of monthRows)
@@ -330,18 +333,12 @@ export default function Ledger({
         id: row.categoryId,
         name:
           row.categoryId === "uncategorized"
-            ? "Uncategorized"
+            ? fixedExpenseCategories.uncategorized
             : `${row.categoryName} (previous category)`,
         amount: 0,
       });
     }
-  const assignableCategories = [
-    { id: "uncategorized", name: "Uncategorized" },
-    ...plan.categories,
-    { id: "bills", name: "Insurance & bills" },
-    { id: "giving", name: "Giving" },
-    { id: "debt", name: "Debt payments" },
-  ];
+  const assignableCategories = expenseCategories(plan);
   const filterCategories = new Map(
     assignableCategories.map((category) => [category.id, category]),
   );
@@ -352,6 +349,12 @@ export default function Ledger({
         id: row.categoryId,
         name: `${row.categoryName} (previous category)`,
       });
+  // Keep an active filter selectable after its last entry is reassigned.
+  if (filters.category && !filterCategories.has(filters.category))
+    filterCategories.set(filters.category, {
+      id: filters.category,
+      name: "Previous category (no entries)",
+    });
   function changeFilters(value: LedgerFilters) {
     setFilters(value);
     setSelected([]);
@@ -359,11 +362,17 @@ export default function Ledger({
   function mergeCategoryChanges(result: CategoryAssignmentResult) {
     const changed = new Map(result.transactions.map((row) => [row.id, row]));
     onChange(transactions.map((row) => changed.get(row.id) ?? row));
-    setUpdatedIds(
-      result.undoToken ? result.transactions.map((row) => row.id) : [],
-    );
-    setUndoToken(result.undoToken);
     setSelected([]);
+  }
+  /** Undo is withdrawn once this tab changes any row it would restore. */
+  function withdrawUndoFor(id: string) {
+    if (undo?.ids.includes(id)) setUndo(null);
+  }
+  function resetCategoryState() {
+    setSelected([]);
+    setUndo(null);
+    setUpdatedIds([]);
+    setCategoryMessage("");
   }
   async function assignCategory(categoryId: string) {
     if (!categorizing) return;
@@ -381,34 +390,39 @@ export default function Ledger({
         },
       );
       mergeCategoryChanges(result);
-      const name = assignableCategories.find(
-        (category) => category.id === categoryId,
-      )!.name;
-      setCategoryMessage(
-        result.undoToken
-          ? `${result.transactions.length} ${result.transactions.length === 1 ? "transaction" : "transactions"} assigned to ${name}.`
-          : "These expenses are already in that category.",
-      );
+      // A no-op keeps the previous Undo, which is still valid on the server.
+      if (result.undoToken) {
+        const ids = result.transactions.map((row) => row.id);
+        setUndo({ token: result.undoToken, ids });
+        setUpdatedIds(ids);
+        setCategoryMessage(
+          `${ids.length} ${ids.length === 1 ? "transaction" : "transactions"} assigned to ${result.transactions[0].categoryName}.`,
+        );
+      } else setCategoryMessage("These expenses are already in that category.");
       setError("");
     } finally {
       setBusy(false);
     }
   }
   async function undoCategoryChange() {
+    if (!undo) return;
     setBusy(true);
     setError("");
     try {
       const result = await request<CategoryAssignmentResult>(
         "/api/transactions/categories",
         "POST",
-        { undoToken },
+        { undoToken: undo.token },
       );
       mergeCategoryChanges(result);
+      setUndo(null);
       setUpdatedIds(result.transactions.map((row) => row.id));
       setCategoryMessage(
         `Restored the previous categories for ${result.transactions.length} ${result.transactions.length === 1 ? "transaction" : "transactions"}.`,
       );
     } catch (error) {
+      // An expired or stale receipt will never succeed; a dropped connection may.
+      if (error instanceof RequestError && error.status < 500) setUndo(null);
       setError(
         error instanceof Error ? error.message : "Could not undo. Try again.",
       );
@@ -543,10 +557,7 @@ export default function Ledger({
                 ]);
                 onChange(tx);
                 onBalanceChange(latestBalance);
-                setSelected([]);
-                setUndoToken(null);
-                setUpdatedIds([]);
-                setCategoryMessage("");
+                resetCategoryState();
                 setMessage("");
               } catch (e) {
                 setError(e instanceof Error ? e.message : "Could not refresh.");
@@ -561,7 +572,7 @@ export default function Ledger({
         {categoryMessage && (
           <div className="notice small category-notice">
             <p role="status">{categoryMessage}</p>
-            {undoToken && (
+            {undo && (
               <button
                 className="text-btn"
                 disabled={busy}
@@ -787,6 +798,7 @@ export default function Ledger({
                           expected: row,
                         });
                         onChange(transactions.filter((t) => t.id !== row.id));
+                        withdrawUndoFor(row.id);
                       } catch (err) {
                         setError(
                           err instanceof Error
@@ -869,10 +881,7 @@ export default function Ledger({
           onClose={() => setImporting(false)}
           onImported={(result) => {
             onChange(result.transactions);
-            setSelected([]);
-            setUndoToken(null);
-            setUpdatedIds([]);
-            setCategoryMessage("");
+            resetCategoryState();
             setMonth("");
             setMessage(
               `Import complete: ${result.added} added, ${result.updated} updated, ${result.skipped} skipped.`,
@@ -896,13 +905,14 @@ export default function Ledger({
           transaction={editing}
           plan={plan}
           onClose={() => setEditing(undefined)}
-          onSaved={(t) =>
+          onSaved={(t) => {
             onChange(
               [t, ...transactions.filter((r) => r.id !== t.id)].sort(
                 (a, b) => -transactionOrder(a, b),
               ),
-            )
-          }
+            );
+            withdrawUndoFor(t.id);
+          }}
         />
       )}
     </div>
