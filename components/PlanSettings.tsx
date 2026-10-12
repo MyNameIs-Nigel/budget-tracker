@@ -13,13 +13,17 @@ import { importPlan } from "@/lib/import-plan";
 import { download } from "@/lib/client";
 import type { UpdatePlan } from "./Dashboard";
 import { NumberField, TextField } from "./Fields";
+import CategorySpending from "./CategorySpending";
+import type { SpendingHistory } from "@/lib/spending-history";
 export default function PlanSettings({
   plan,
+  spendingHistory,
   update,
   onImport,
   testMode,
 }: {
   plan: Plan;
+  spendingHistory: SpendingHistory;
   update: UpdatePlan;
   onImport: (p: Plan) => void;
   testMode: boolean;
@@ -453,8 +457,8 @@ export default function PlanSettings({
           <div>
             <h2>Spending categories</h2>
             <p className="small muted">
-              Rename a category or add your own. Previous averages are reference
-              points.
+              Rename a category or add your own. Previous spending comes from
+              your recorded transactions in {spendingHistory.label}.
             </p>
           </div>
         </div>
@@ -470,15 +474,7 @@ export default function PlanSettings({
                 })
               }
             />
-            <NumberField
-              label={`${c.name} previous average`}
-              value={c.baseline ?? 0}
-              onChange={(n) =>
-                update((p) => {
-                  p.categories[i].baseline = n;
-                })
-              }
-            />
+            <CategorySpending history={spendingHistory} categoryId={c.id} />
             <button
               className="icon-btn"
               disabled={plan.categories.length === 1}

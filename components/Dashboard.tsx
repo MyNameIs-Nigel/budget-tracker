@@ -14,7 +14,9 @@ import {
   ShieldCheck,
   Plus,
 } from "lucide-react";
-import { allocationCap, money, totals, type Plan } from "@/lib/budget";
+import { allocationCap, money, totals, today, type Plan } from "@/lib/budget";
+import { previousMonthSpending } from "@/lib/spending-history";
+import CategorySpending from "./CategorySpending";
 import type { AppUser } from "@/lib/dal";
 import type { Transaction } from "@/lib/store";
 import type { CheckingBalance } from "@/lib/checking";
@@ -54,6 +56,22 @@ export default function Dashboard({
     [revision, setRevision] = useState(initialRevision);
   const [saved, setSaved] = useState(JSON.stringify(initialPlan));
   const [transactions, setTransactions] = useState(initialTransactions);
+  const [historyDate, setHistoryDate] = useState(today);
+  const spendingHistory = useMemo(
+    () => previousMonthSpending(transactions, historyDate),
+    [transactions, historyDate],
+  );
+  useEffect(() => {
+    const refreshDate = () => setHistoryDate(today());
+    const timer = setInterval(refreshDate, 60_000);
+    window.addEventListener("focus", refreshDate);
+    document.addEventListener("visibilitychange", refreshDate);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refreshDate);
+      document.removeEventListener("visibilitychange", refreshDate);
+    };
+  }, []);
   const [checkingBalance, setCheckingBalance] = useState(
     initialCheckingBalance,
   );
@@ -479,16 +497,52 @@ export default function Dashboard({
               {plan.categories.map((c) => {
                 const cap = allocationCap(plan, c.amount),
                   max = Math.max(100, c.amount, cap);
+                const previousAmount =
+                  (spendingHistory.byCategory[c.id] ?? 0) / 100;
+                const exceedsBudget =
+                  previousAmount > cap || previousAmount > 1_000_000;
                 return (
                   <div className="slider-row category-row" key={c.id}>
                     <div>
                       <strong>{c.name}</strong>
                       <p className="small muted">
                         About {money((c.amount * 12) / 52)} / week
-                        {c.baseline !== null && (
-                          <span> · previous {money(c.baseline)} / month</span>
-                        )}
                       </p>
+                      <CategorySpending
+                        history={spendingHistory}
+                        categoryId={c.id}
+                      />
+                      <button
+                        className="text-btn use-spending-history"
+                        aria-label={`Use last month's spending for ${c.name}`}
+                        disabled={
+                          busy ||
+                          !spendingHistory.hasTransactions ||
+                          exceedsBudget
+                        }
+                        onClick={() =>
+                          update((p) => {
+                            const category = p.categories.find(
+                              (entry) => entry.id === c.id,
+                            )!;
+                            if (
+                              previousAmount <=
+                                allocationCap(p, category.amount) &&
+                              previousAmount <= 1_000_000
+                            )
+                              category.amount = previousAmount;
+                          })
+                        }
+                      >
+                        Use last month’s spending
+                      </button>
+                      {spendingHistory.hasTransactions && exceedsBudget && (
+                        <p className="category-history muted">
+                          {previousAmount > 1_000_000
+                            ? "Last month exceeds the supported budget amount."
+                            : "Last month’s spending exceeds your available budget. Adjust your allocations first."}
+                        </p>
+                      )}
                     </div>
                     <input
                       type="range"
@@ -527,6 +581,16 @@ export default function Dashboard({
                   </div>
                 );
               })}
+              {spendingHistory.hasTransactions &&
+                (spendingHistory.byCategory.uncategorized ?? 0) > 0 && (
+                  <p className="category-history muted">
+                    {money(
+                      spendingHistory.byCategory.uncategorized / 100,
+                      true,
+                    )}{" "}
+                    from {spendingHistory.label} is still uncategorized.
+                  </p>
+                )}
               <button className="text-btn" onClick={() => setView("settings")}>
                 <Plus size={15} />
                 Manage categories
@@ -553,6 +617,7 @@ export default function Dashboard({
         {view === "settings" && (
           <PlanSettings
             plan={plan}
+            spendingHistory={spendingHistory}
             update={update}
             onImport={(p) => {
               setPlan(p);

@@ -95,6 +95,21 @@ categories, and refuses to overwrite newer transaction edits. Search and filters
 only narrow the list; checking balances and the monthly plan comparison retain
 their full-ledger calculations. No matching rows has its own empty state.
 
+**Your plan** and **Plan settings** show actual spending for the previous calendar
+month, calculated from categorized expense transactions. Category identity keeps
+the reference consistent after a rename. Reclassification, imports, edits, and
+deletions update the reference from the ledger; month boundaries follow the app's
+local calendar. A month with no recorded transactions says so, rather than
+presenting a guessed zero. Uncategorized spending is shown separately.
+
+Choose **Use last month's spending** beside a budget category to copy its actual
+total into your draft budget, then **Save plan** as usual. The action respects
+available income and supported amount limits and explains when you need to adjust
+allocations first. Historical spending does not automatically change planned
+amounts or forecast balance snapshots. The old manually entered/imported baseline
+values remain in saved/exported plans for compatibility, but no longer supply the
+displayed spending reference or appear as editable settings.
+
 ## Import transactions from CSV
 
 Choose **Checking → Import CSV**. The file stays in your browser while you select

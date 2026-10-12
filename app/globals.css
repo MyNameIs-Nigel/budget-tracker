@@ -703,6 +703,19 @@ select {
   padding: 18px 0;
   border-top: 1px solid var(--border);
 }
+.slider-row .category-history,
+.category-history {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.category-history strong {
+  color: var(--foreground);
+}
+.use-spending-history {
+  font-size: 11px;
+  text-align: left;
+  padding: 6px 0;
+}
 .category-panel .section-title {
   margin-bottom: 10px;
 }
@@ -1879,6 +1892,10 @@ button.category-badge {
     grid-column: 1/-1;
     justify-content: space-between;
     min-height: 44px;
+  }
+  .category-settings > .category-history {
+    grid-row: 2;
+    grid-column: 1 / -1;
   }
   .category-settings > .icon-btn {
     grid-row: 1;

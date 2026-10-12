@@ -304,13 +304,17 @@ test("LEDGER-05 quick category picker supports keyboard, mixed selections and hi
   await page
     .getByRole("button", { name: "Assign category", exact: true })
     .click();
-  await expect(page.getByText(/Multiple current categories/)).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "Spending category", exact: true }),
+  ).toHaveValue("");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByText(/Current category:|Each expense has|already in this category/),
+  ).toHaveCount(0);
   await page
     .getByRole("combobox", { name: "Spending category", exact: true })
     .selectOption("category-1");
-  await expect(
-    page.getByText("1 already in this category.", { exact: true }),
-  ).toBeVisible();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Assign category", exact: true })
@@ -330,6 +334,256 @@ test("LEDGER-05 quick category picker supports keyboard, mixed selections and hi
     categoryName: "Groceries",
   });
   await accessibleAndFits(page);
+});
+
+test("PLAN-04 previous spending follows categorization and can be copied into a saved budget", async ({
+  page,
+}, testInfo) => {
+  await setup(page);
+  const month = addMonths(today().slice(0, 7), -1);
+  const savedPlan = await (await page.request.get("/api/plan")).json();
+  savedPlan.plan.categories[0].baseline = 999.99;
+  expect((await page.request.put("/api/plan", { data: savedPlan })).ok()).toBe(
+    true,
+  );
+  const before = await (await page.request.get("/api/plan")).json();
+  await add(page.request, {
+    date: `${month}-01`,
+    description: "Prior market",
+    amountCents: 8435,
+  });
+  await add(page.request, {
+    date: dayOffset(`${today().slice(0, 7)}-01`, -1),
+    description: "Prior weekly shop",
+    amountCents: 19565,
+  });
+  await add(page.request, {
+    date: `${month}-12`,
+    description: "Prior uncategorized purchase",
+    categoryId: "uncategorized",
+    amountCents: 10240,
+  });
+  await add(page.request, {
+    date: `${month}-10`,
+    description: "Prior income",
+    kind: "income",
+    categoryId: "income",
+    amountCents: 500000,
+  });
+  await add(page.request, {
+    description: "Current purchase",
+    amountCents: 99000,
+  });
+  await add(page.request, {
+    date: `${addMonths(month, -1)}-01`,
+    description: "Older purchase",
+    amountCents: 11100,
+  });
+  await page.goto("/budget");
+  const balanceBefore = await checking(page).innerText();
+  await page
+    .getByLabel("Viewing month", { exact: true })
+    .fill(today().slice(0, 7));
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  const groceries = page
+    .locator(".category-row")
+    .filter({ has: page.getByText("Groceries", { exact: true }) });
+  await expect(groceries.locator(".category-history")).toContainText("$280.00");
+  await expect(groceries).not.toContainText("999.99");
+  await expect(page.getByText(/is still uncategorized/)).toContainText(
+    "$102.40",
+  );
+  await page.getByRole("button", { name: "Checking", exact: true }).click();
+  await page
+    .getByRole("button", { name: "All transactions", exact: true })
+    .click();
+  await page
+    .getByRole("button", {
+      name: "Change category for Prior uncategorized purchase, current category Uncategorized",
+      exact: true,
+    })
+    .click();
+  const modal = page.getByRole("dialog");
+  await expect(
+    modal.getByText(
+      /Current category:|Each expense has|already in this category/,
+    ),
+  ).toHaveCount(0);
+  await expect(modal.locator(".transaction-row")).toHaveCount(0);
+  await expect(
+    modal.getByRole("combobox", { name: "Spending category", exact: true }),
+  ).toHaveValue("uncategorized");
+  await accessibleAndFits(page);
+  await modal
+    .getByRole("combobox", { name: "Spending category", exact: true })
+    .selectOption("category-0");
+  await modal
+    .getByRole("button", { name: "Assign category", exact: true })
+    .click();
+  await expect(modal).not.toBeVisible();
+  expect(await checking(page).innerText()).toBe(balanceBefore);
+  expect(await (await page.request.get("/api/plan")).json()).toEqual(before);
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  await expect(groceries.locator(".category-history")).toContainText("$382.40");
+  await expect(page.getByText(/is still uncategorized/)).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Plan settings", exact: true })
+    .click();
+  await expect(
+    page.getByRole("spinbutton", { name: /previous average/ }),
+  ).toHaveCount(0);
+  const firstCategory = page.locator(".category-settings").filter({
+    has: page.getByRole("textbox", { name: "Category name 1", exact: true }),
+  });
+  await expect(firstCategory.locator(".category-history")).toContainText(
+    "$382.40",
+  );
+  await accessibleAndFits(page);
+  await page
+    .getByRole("textbox", { name: "Category name 1", exact: true })
+    .fill("Food and pantry");
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  const renamed = page
+    .locator(".category-row")
+    .filter({ has: page.getByText("Food and pantry", { exact: true }) });
+  await expect(renamed.locator(".category-history")).toContainText("$382.40");
+  await page
+    .getByRole("button", {
+      name: "Use last month's spending for Food and pantry",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByLabel("Food and pantry amount", { exact: true }),
+  ).toHaveValue("382.4");
+  expect(await (await page.request.get("/api/plan")).json()).toEqual(before);
+  await accessibleAndFits(page);
+  await page.screenshot({
+    path: `.local/spending-history-${testInfo.project.name}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Save plan", exact: true }).click();
+  await expect(
+    page.getByText("All changes saved", { exact: true }),
+  ).toBeVisible();
+  const after = await (await page.request.get("/api/plan")).json();
+  expect(after.plan.categories[0]).toMatchObject({
+    id: "category-0",
+    name: "Food and pantry",
+    amount: 382.4,
+    baseline: 999.99,
+  });
+  expect(after.plan.balances).toEqual(before.plan.balances);
+  expect(after.plan.debts).toEqual(before.plan.debts);
+  await page.reload();
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  await expect(
+    page.getByLabel("Food and pantry amount", { exact: true }),
+  ).toHaveValue("382.4");
+  await expect(renamed.locator(".category-history")).toContainText("$382.40");
+  await page.getByRole("button", { name: "Checking", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Edit Prior weekly shop", exact: true })
+    .click();
+  await page.getByLabel("Amount (USD)", { exact: true }).fill("100.01");
+  await page
+    .getByRole("button", { name: "Save transaction", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  await expect(renamed.locator(".category-history")).toContainText("$286.76");
+  await expect(
+    page.getByLabel("Food and pantry amount", { exact: true }),
+  ).toHaveValue("382.4");
+  await page.getByRole("button", { name: "Checking", exact: true }).click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page
+    .getByRole("button", { name: "Delete Prior market", exact: true })
+    .click();
+  await expect(page.getByText("Prior market", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  await expect(renamed.locator(".category-history")).toContainText("$202.41");
+  await expect(
+    page.getByLabel("Food and pantry amount", { exact: true }),
+  ).toHaveValue("382.4");
+});
+
+test("PLAN-04 missing history and budget bounds make previous-spending actions explicit", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.goto("/budget");
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  const groceries = page
+    .locator(".category-row")
+    .filter({ has: page.getByText("Groceries", { exact: true }) });
+  await expect(groceries).toContainText("No transactions recorded");
+  await expect(
+    page.getByRole("button", {
+      name: "Use last month's spending for Groceries",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await add(page.request, {
+    date: `${addMonths(today().slice(0, 7), -1)}-01`,
+    description: "Large prior purchase",
+    amountCents: 9999999,
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  await expect(groceries).toContainText("$99,999.99");
+  await expect(groceries).toContainText("Adjust your allocations first.");
+  await expect(
+    page.getByRole("button", {
+      name: "Use last month's spending for Groceries",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await expect(
+    page.getByLabel("Groceries amount", { exact: true }),
+  ).toHaveValue("400");
+  const dining = page
+    .locator(".category-row")
+    .filter({ has: page.getByText("Eating out", { exact: true }) });
+  await expect(dining.locator(".category-history")).toContainText("$0.00");
+  await page
+    .getByRole("button", {
+      name: "Use last month's spending for Eating out",
+      exact: true,
+    })
+    .click();
+  await expect(
+    page.getByLabel("Eating out amount", { exact: true }),
+  ).toHaveValue("0");
+  await accessibleAndFits(page);
+});
+
+test("PLAN-04 the previous calendar month advances while the dashboard stays open", async ({
+  page,
+}) => {
+  await setup(page);
+  await add(page.request, {
+    description: "Current month groceries",
+    amountCents: 3456,
+  });
+  await page.clock.install();
+  await page.goto("/budget");
+  await page.getByRole("button", { name: "Your plan", exact: true }).click();
+  const groceries = page
+    .locator(".category-row")
+    .filter({ has: page.getByText("Groceries", { exact: true }) });
+  await expect(groceries).toContainText("No transactions recorded");
+  await page.clock.setSystemTime(
+    new Date(`${addMonths(today().slice(0, 7), 1)}-01T18:00:00Z`),
+  );
+  await page.clock.runFor(60_000);
+  await expect(groceries.locator(".category-history")).toContainText("$34.56");
+  await expect(
+    page.getByRole("button", {
+      name: "Use last month's spending for Groceries",
+      exact: true,
+    }),
+  ).toBeEnabled();
 });
 
 test("LEDGER-05 undo and filters stay accurate after no-op picks, edits and renames", async ({
